@@ -1,0 +1,367 @@
+---
+title: "Mapas"
+author: "Teresa Ortiz"
+date: "2015-08"
+output: html_document
+---
+
+Paquetes a utilizar:
+```{r, message=FALSE, echo =TRUE, warning=FALSE}
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(scales)
+library(maptools)
+library(rgdal)
+library(ggmap)
+library(gridExtra)
+gpclibPermit()
+```
+
+### ¿Por qué mapas?
+
+Gran parte de los datos que se estudian en estadística espacial consisten en
+observaciones en la Tierra por lo que es importante realizar mapas donde 
+grafiquemos las observaciones, o realizar mapas que incorporen estimaciones de 
+un modelo. Los mapas pueden ser parte de la presentación de resultados, del
+análisis exploratorio o pueden servir para evaluar el ajuste de un modelo.
+
+La creación de mapas requiere conocimientos técnicos (uso de software) y
+entendimiento de los principios de sistemas de referencia de coordenadas (CRS).
+Es por ello que comenzaremos definiendo algunos conceptos de los CRS.
+
+### Elipses, datums, proyecciones
+
+1. **Elipse:** Describe la forma de la Tierra, es una aproximación que no
+ajusta a la perfección. Existen distintos elipsoides, algunos están diseñados
+para ajustar toda la Tierra (WGS84, GRS80) y algunos ajustan únicamente por
+regiones (NAD27). Los locales son más precisos para el área para la que fueron
+diseñados pero no funcionan en otras partes del mundo.
+
+```{r}
+projInfo(type = "ellps")[1:10, ]
+```
+
+2. **Datum:** Define un punto de origen para el sistema de coordenadas de la 
+Tierra y la dirección de los ejes. El datum define el elipsoide que se usará
+pero el sentido contrario no es cierto.
+
+```{r}
+projInfo(type = "datum")
+```
+
+3. **Proyección:** Proyectar el elipsoide en un espacio de dos dimensiones. Es
+decir pasar de longitud y latitud en el elipsoide a coordenadas de un mapa, esto
+conlleva necesariamente una distorsión de la superficie. La estrategia usual es
+utilizar _superficies de desarrollo_ y después aplanar la superficie. Todas las proyecciones inducen alguna distorsión y las proyecciones de los mapas serán 
+diferentes.
+
+<img src="../imagenes/mapa_Tierra.png" style="width: 500px;"/>
+
+Las distorsiones resultan en pérdidas de información que pueden ser en área, 
+forma, distancia o dirección. Por ejemplo _Mercator_ preserva dirección y es 
+útil para 
+navegación: 
+
+```{r}
+states <- map_data("state")
+usmap <- ggplot(states, aes(x=long, y=lat, group=group)) +
+  geom_polygon(fill="white", colour="black")
+usmap + coord_map("mercator")
+```
+
+Por su parte _Azimuthal Equal Area_ preserva area pero no dirección:
+
+```{r}
+usmap + coord_map("azequalarea")
+```
+
+<img src="../imagenes/aea.png" style="width: 500px;"/>
+
+En particular en investigación es común usar _Universal Transverse Mercator 
+(UTM)_ porque preserva ángulos y dirección pero distorsiona distancia. Para
+minimizar la distorsión se divide la Tierra en 60 regiones y utiliza una 
+proyección (de secantes) en cada una.
+
+<img src="../imagenes/utm.png" style="width: 500px;"/>
+
+En R podemos ver la lista de proyecciones con la siguiente instrucción:
+
+```{r}
+# 135 proyecciones distintas
+projInfo(type="proj")[1:20, ]
+```
+
+Es posible trabajar con datos no proyectados (longitud/latitud) pero se 
+requieren métodos para medir distancias: gran círculo, naive euclideana, 
+o cordal (esto último pensando en modelado).
+
+### Sistemas de referencia de coordenadas (CRS)
+
+Los CRS nos dan una manera estándar de describir ubicaciones en la Tierra. Si 
+combinamos información de distintos CRS debemos transformarlos para poder 
+alinear la información.
+
+En R, la notación que se utiliza para describir un CRS es proj4string de la 
+libraría [PROJ.4](https://trac.osgeo.org/proj/) y se ven como:
+
++init=epsg:4121 +proj=longlat +ellps=GRS80 +datum=GGRS87 +no_defs +towgs84=-199.87,74.79,246.62
+
+Los shapefiles suelen tener asociada una proyección.
+
+```{r}
+ogrInfo(dsn = "shapes", layer = "Municipios")
+ogrInfo(dsn = "shapes", layer = "Mex_Edos")
+```
+
+En el caso de la proyección en los shapes de Municipios se usó
+[North America Lambert Conformal Conic Projection](http://en.wikipedia.org/wiki/Lambert_conformal_conic_projection).
+
+Hay varias maneras de transformar el CRS de un objeto espacial, una de ellas
+es usar transform.
+
+```{r}
+mun_shp <- readOGR("shapes" , "Municipios")
+mun_shp_2 <- spTransform(mun_shp, CRS("+proj=longlat +datum=WGS84"))
+mun_shp@proj4string
+mun_shp_2@proj4string
+```
+
+
+#### Shapefile
+
+Un _shapefile_ es un grupo de archivos que contienen geometrías e información de 
+acuerdo a un estándar especificado por el Insituto de Investigación en Sistemas 
+de Ecosistemas (ESRI). Nosotros tenemos los siguientes grupos de archivos 
+(para estados): 
+
+* Estados.shp: es el archivo principal y contiene la geometría correspondiente.
+
+* Estados.dbf: es la base de datos y almacena la información de los atributos de 
+los objetos 
+
+* Estados.shx: almacena el índice de las entidades geométricas. 
+* Estados.prj (opcional): información del CRS.
+* Estados.sbn y .sbx (opcional): almacena índice espacial.
+
+Veamos las librerías que usaremos
+
+```{r, message=FALSE}
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(scales)
+library(maptools)
+library(rgdal)
+library(ggmap)
+library(gridExtra)
+```
+
+Usamos la función readOGR para leer los archivos de estados.
+
+```{r}
+edo_shp <- readOGR("shapes" , "Mex_Edos")
+```
+
+el "shapes" indica que los archivos están en el directorio shapes.
+
+Notemos que el objeto edo_shp no es un data frame,
+
+```{r, cache=TRUE}
+class(edo_shp)
+```
+
+Lo podemos graficar directamente con plot.
+
+```{r}
+plot(edo_shp)
+```
+
+pero para poder graficarlo con ggplot debemos convertirlo en data frame.
+
+Formamos el data frame (con fortify) que convierte los polígonos en 
+puntos, les asigna el id (NOM\_ENT) correspondiente, y asigna también un 
+_grupo_ que indica  a que polígono corresponde cada punto.
+
+```{r}
+edo_df <- fortify(edo_shp, region = "NOM_ENT")
+class(edo_df)
+head(edo_df)
+```
+
+Ya estamos listos para graficar, usaremos la geometría polígono.
+
+```{r, cache=TRUE}
+ggplot(data = edo_df, aes(long, lat, group=group)) + 
+  geom_polygon(colour='darkgrey', fill='white') +
+  coord_map(projection="mercator") +
+  theme_nothing()
+```
+
+En la instrucción de arriba el mapa se genera uniendo los polígonos 
+(*geom_polygon*), las siguientes dos líneas son opcionales:
+
+* *coord\_map* asegura que el cociente entre el ancho y alto del gráfico sea el 
+correspondiente a la proyección de los datos y así evitar deformaciones.
+
+* *theme_nothing* _limpia_ el gráfico eliminando grids y etiquetas.
+
+#### Añadir variables al mapa
+
+Nuestro objetivo final es hacer mapas para representar una variable, veamos
+como haríamos para representar el índice de carencias, el índice objetivo
+esta almacenado en el archivo *indice\_carencias.csv*. 
+
+```{r}
+library(Hmisc)
+# leer base de datos a representar
+conapo <- read.csv("data/indice_carencias.csv", stringsAsFactors=FALSE)
+# leemos la clave como caracter (es una manera redundante)
+conapo$CVE <- read.table("data/conapo_2010.csv", header=TRUE, quote="\"", 
+  stringsAsFactors=FALSE, colClasses = "character")$CVE
+
+
+# Creamos una variable categórica (en este ejemplo queremos una cont y una cat.)
+conapo <- mutate(conapo, indice_cat = cut2(PC1, 5))
+# seleccionamos las variables que necesitamos para tener una base más limpia
+# CVE es la clave del municipio y la usaremos para unir la variable
+# a graficar con el mapa
+indice <- select(conapo, indice = PC1, indice_cat, CVE)
+
+# Filtramos las regiones de interés (DF, edo. de México y Morelos)
+centro <- indice$CVE[conapo$NOM_ABR %in% c("DF", "Mex.", "Mor.")]
+
+# Leemos los shapes de municipio
+mun_shp <- readOGR("shapes" , "Municipios")
+names(mun_shp)
+mun_shp@data$CVE <- paste(as.character(mun_shp@data$CVE_ENT), 
+  as.character(mun_shp@data$CVE_MUN), sep = "")
+
+mun_df <- fortify(mun_shp, region = "CVE")
+```
+
+Como vemos en el código de arriba, para incluir variables en el mapa las 
+añadimos a la base de datos mun_df. Para este ejemplo graficaremos únicamente 
+una región. Podemos crear el subconjunto directamente del objeto
+_SpatialPolygonsDataFrame_ (mun\_df) pero en este ejemplo filtramos la base de 
+datos _data.frame_ ().
+
+```{r, cache=TRUE}
+# unimos los polígonos (en data.frame) y las variables a graficar
+mun_ind <- mun_df %>%
+  mutate(CVE = id) %>%
+  left_join(indice) %>% 
+  filter(CVE %in% centro)
+
+ggplot() + 
+  geom_polygon(data = mun_ind, aes(long, lat, group = group, fill = indice)) +
+  labs(title = "Índice de carencias", fill = "Índice") +
+  coord_fixed()
+```
+
+En el siguiente mapa los colores son a nivel municipio pero dibujamos las 
+fronteras a nivel estado para evitar que los bordes opaquen los datos.
+
+```{r, cache=TRUE}
+# los municipios están en una proyección distinta a los estados por lo que 
+# si queremos que coincidan hay que reproyectarlos
+
+mun_shp_2 <- spTransform(mun_shp, CRS("+proj=longlat +datum=WGS84"))
+
+mun_df <- fortify(mun_shp_2, region = "CVE")
+mun_ind <- mun_df %>%
+  mutate(CVE = id) %>%
+  left_join(indice)
+
+ggplot() + 
+  geom_polygon(data = mun_ind, aes(long, lat, group = group, fill = indice)) +
+  geom_polygon(data = edo_df, aes(x = long, y = lat, group = group),
+    fill = NA, color = "darkgray", size = 0.25) +
+  labs(title = "Índice de carencias", fill = "Índice") +
+  theme_nothing(legend = TRUE) + #fondo blanco
+  guides(fill = guide_legend(reverse = TRUE)) +
+  scale_fill_distiller(palette = "GnBu", breaks = pretty_breaks(n = 10)) + #paleta 
+  coord_map()
+```
+
+En la instrucción de arriba, a partir de la cuarta línea los comandos son 
+opcionales:
+
+* *labs*: título y etiqueta del gráfico.
+
+* *theme\_nothing(legend=TRUE)*: limpiar el gráfico (quitar grids, escalas,
+ejes,...) dejando la etiqueta.
+
+* *guides(fill = guide\_legend(reverse = TRUE))*: cambiar las leyendas para
+que el valor más bajo quede en la parte inferior.
+
+* *scale\_fill\_distiller*: seleccionar la paleta de color que va de verde a
+azúl, categorías limpias.
+
+Ahora, para usar mapas de ggplot como fondo usamos el paquete _ggmap_ es 
+importante considerar que estos mapas usan elipsoide World Geodesic
+Siystem 1984 y longitud/latitud.
+
+```{r, fig.height = 4}
+map_Cuer <- get_map("Cuernavaca", maptype = "roadmap")
+ggmap(map_Cuer)
+```
+
+Veamos un ejemplo de [Ryan Peek](http://www.r-bloggers.com/making-maps-in-r-with-ryan-peek-and-michele-tobias/)
+
+```{r}
+hotsprings <- read.csv("data/hotspringsCA.csv")
+# Solo nos interesan algunas columnas
+df <- hotsprings[, c(2:6, 10, 11)]
+head(df)
+```
+
+Podemos seleccionar la región usando lat/lon.
+
+```{r, fig.height = 4, warning=FALSE}
+ca <- get_map(location = c(lon = -120.5, lat = 37.5), zoom = 6, crop = T, 
+  scale = "auto", color = "color", maptype = "satellite")  
+
+gg <- ggmap(ca, extent = "panel", padding = 0)
+
+gg_ca <- gg + 
+  geom_point(data = df, aes(x = LONGITUDE, y = LATITUDE), size = 4, 
+    pch = 21, fill = "orange", alpha = 0.6)
+
+grid.arrange(gg, gg_ca, ncol = 2, main = "Ubicación de aguas termales")
+```
+
+
+![](../../../est-comp-14/imagenes/manicule2.jpg) Grafica los polígonos (de los shapes
+de Municipios) de tu estado (o DF) de nacimiento sobre un google maps.
+
+También hay herramientas para hacer mapas dinámicos.
+
+```{r, message=FALSE}
+library(googleVis)
+# creamos una columna latitiud-longitud que escribimos como la primera del df
+df$LatLong <- paste(round(df$LATITUDE, 3), round(df$LONGITUDE, 3), sep = ":")
+head(df)
+dfvis <- df[, c(8, 1:7)]
+
+# Creamos una variable donde se almacena la información a desplegar
+dfvis$Tip <- as.character(paste("Hot Spring =", dfvis$SpringName, "<BR>", 
+  "Water Temp (F) =",   dfvis$TF, " <BR>", "NOAA =", dfvis$NOAA, " <BR>", 
+  "USGS Quad =", dfvis$USGS.Quadrangle, "<BR>"))
+
+# Grafica
+CAsprings <- gvisMap(dfvis, locationvar = "LatLong", tipvar = "Tip", 
+  options = list(enableScrollWheel = TRUE, 
+  height = 600, mapType = c("terrain", "satellite"), useMapTypeControl = TRUE))
+#print(CAsprings) # abre en un nuevo html
+```
+
+
+* Más de googleVis en su [github](https://github.com/mages/googleVis), y en el 
+[blog](http://www.magesblog.com/search/label/googleVis) de Markus Gesmann.
+
+* Otros paquetes populares son [RGoogleMaps](http://www.r-bloggers.com/heatmap-of-toronto-traffic-signals-using-rgooglemaps/) y [plotKML](http://cran.r-project.org/web/packages/plotKML/plotKML.pdf).
+
+* [Leaflet](http://rstudio.github.io/leaflet/) Mapas interactivos, hay paquete
+para controlar mapas de Leaflet desde R.
+
