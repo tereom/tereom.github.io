@@ -1,0 +1,616 @@
+---
+title: "Modelos Locales"
+author: "Teresa Ortiz"
+output: 
+  html_document:
+    theme: spacelab
+---
+
+<style>
+.caja {
+    background-color:mistyrose;
+    padding:5px;
+}
+
+.clicker {
+    background-color:whitesmoke;
+    padding:5px;
+}
+</style>
+
+
+```{r, echo=FALSE}
+source("../../computo/codigo/tema_ggplot.R")
+options(digits = 2)
+```
+
+En esta parte veremos cómo construir los modelos locales que corresponden a 
+factores en la regla del producto para factorizaciones sobre DAGs, y veremos
+cómo usar datos para ajustar sus parámetros.
+
+### Tablas de probabilidad condicional
+
+En primer lugar, recordemos que siempre podemos hacer representaciones tabulares 
+para la condicional de cada variable dado sus padres:
+$$P(X|Pa(X)),$$
+donde establecemos, para cada combinación de valores de las variables en $Pa(X)$, 
+una distribución sobre $X$ tal que
+$$\sum_x P(X=x|Pa(X))=1.$$
+
+**Ejemplo.** En el ejemplo de la clase anterior construimos directamente las 
+condicionales de llueve (no condicional), regar (no condicional) y mojado dado 
+llueve y regar:
+
+```{r}
+llueve <- c('Sí','No')
+regar <- c('Prendido', 'Apagado')
+p_llueve <- data.frame(llueve = llueve, prob.l = c(0.1, 0.9))
+p_llueve
+p_regar <- data.frame(regar = regar, prob.r = c(0.2, 0.8))
+p_regar
+
+mojado <- c('Mojado','Seco')
+niveles <- expand.grid(llueve = llueve, regar = regar, mojado = mojado)
+p_mojado_lr <- data.frame(niveles, prob_m = NA)
+p_mojado_lr$prob_m[1:4] <- c(0.97, 0.9, 0.8, 0.01)
+p_mojado_lr$prob_m[5:8]<- 1 - p_mojado_lr$prob_m[1:4]
+p_mojado_lr
+```
+
+Representar los modelos locales de esta forma tiene una desventaja potencial:
+Esta representación **no explota ninguna regularidad que pueda existir en la 
+condicional**, así que cuando la variable respuesta depende de muchas variables 
+hay muchos parámetros por estimar individualmente (cada probabilidad 
+condicional, menos uno). Esto puede ser difícil de ajustar con datos o demasiado 
+engorroso de elicitar para un experto.
+
+Ejemplos de regularidades: 
+
+* Si riegan, entonces el piso va a estar mojado sin importar si llueve o no. (no 
+es necesario un parámetro separado para llueve/no llueve)
+* La probabilidad de conseguir ser aceptado en una universidad depende de la 
+calidad de las cartas de recomendación del profesor  A, el profesor B, y de la 
+carta que decida enviar el solicitante. Si un estudiante escoge la carta de 
+recomendación del profesor A para pedir trabajo, la probabilidad de conseguir el 
+trabajo no depende de la carta del profesor B. (dado que escogió la carta A, 
+basta dar la tabla de probabilidades aceptación-calidad de carta A, sin importar 
+la calidad de la carta B).
+* La probabilidad de una categoría sigue un modelo logístico sin interacciones 
+entre las variables de entrada (padres) (no es necesario tener parámetros para 
+interacciones entre las variables de entrada).
+
+En todos estos casos, podemos reducir el número de parámetros a estimar y 
+obtener una representación más simple, siempre y cuando nuestros modelos más 
+simples ajusten a los datos. 
+
+La idea importante es que para especificar las probabilidades condicionales no
+es necesario dar una tabla completa explícitamente. Podemos tener reglas o 
+modelos simples de las cuales podamos calcular cualquier probabilidad 
+condicional que nos interese.
+
+### Estimación directa por máxima verosimilitud
+
+Cuando usamos datos para estimar los modelos locales, si no hacemos supuestos 
+sobre la estructura de los modelos locales, podemos usar máxima verosimilitud 
+para hacer la estimación.
+
+Para estimar
+$$P(X_i=x|X_1=x_1,\ldots, X_k=x_k)$$
+
+utilizamos simplemente
+$$\frac{N(X_i=x,X_1=x_1,\ldots, X_k=x_k)}{N(X_1=x_1,\ldots, X_k=x_k)}.$$
+
+Nótese que cuando hay muchas variables de entrada/relativamente pocos datos, 
+esta estimación puede ser muy ruidosa (pocos casos en el denominador), o 
+simplemente infactible. Para modelos simples funciona razonablemente bien.
+
+Una solución (relacionada con un modelo bayesiano) es suavizar los conteos con
+$$\frac{N(X_i=x,X_1=x_1,\ldots, X_k=x_k)+\alpha_x}{N(X_1=x_1,\ldots, X_k=x_k)+\alpha},$$
+donde $\sum_x \alpha_x=\alpha$.
+
+**Ejemplo.** Consideramos el siguiente ejemplo de datos de la ENIGH 2010 (una 
+observación por hogar, características de hogares y sus habitantes):
+
+```{r, warning=FALSE}
+library(bnlearn)
+library(plyr)
+library(dplyr)
+
+load(file = 'datos/dat_ing.Rdata')
+dat_ing$marg <- factor(as.character(dat_ing$marg))
+
+# creamos una base únicamente con variables de interés
+dat_ing_f <- select(dat_ing, tam_loc, marg, decil, nivelaprob, vehiculo, 
+                    drenaje, pisos, sexojefe)
+
+black <- data.frame(
+  form = c('drenaje', 'nivelaprob', 'decil', 'decil', 'nivelaprob'),
+  to = c('decil', 'sexojefe', 'nivelaprob', 'tam_loc', 'marg'))
+
+net_enigh <- hc(dat_ing_f,  score = 'aic', blacklist = black)
+net_enigh
+fit_enigh_mle <- bn.fit(net_enigh, data = dat_ing_f, method = 'mle')
+#write.net("./salidas/enigh_mle_1.net", fit_enigh_mle)
+graphviz.plot(net_enigh)
+```
+
+
+La estimación por máxima verosimilitud para la condicional de marginación dado
+tamaño de localidad es
+
+```{r}
+fit_enigh_mle[['marg']]
+```
+
+Que es simplemente (máxima verosimilitud):
+
+```{r}
+tab_1 <- table(dat_ing$marg, dat_ing$tam_loc)
+tab_1
+tab_2 <- prop.table(tab_1, margin = 2)
+tab_2
+```
+
+En este ejemplo, donde los denominadores son relativamente grandes, no
+es necesario hacer ningún suavizamiento. Sin embargo, podemos utilizar 
+suavizamiento de conteos de la siguiente forma (_iss_ es 
+_imaginary sample size_).
+
+```{r}
+fit_enigh_b <- bn.fit(net_enigh, data = dat_ing_f, method = 'bayes', iss = 100)
+fit_enigh_b[['marg']]
+prop.table(tab_1 + 100 / (4 * 5), margin = 2)
+```
+
+Mayor suavizamiento regulariza más los conteos. Para muestras más chicas,
+es posible que sea necesario escoger suavizamientos más chicos.
+
+**Ejemplo.** Repetiremos el ejercicio con una muestra chica para ver cómo puede
+mejorar nuestra estimación el suavizamiento.
+
+```{r, warning=FALSE}
+library(ggplot2)
+library(tidyr)
+
+set.seed(282095)
+
+# tomamos una muestra de tamaño 50
+dat_ing_muestra <- sample_n(dat_ing_f, 50)
+
+# veamos la tabla cruda
+table(dat_ing_muestra$marg, dat_ing_muestra$tam_loc)
+
+# usamos máxima verosimilitud
+fit_enigh_1 <- bn.fit(net_enigh, data = dat_ing_muestra, method='mle')
+probs_est_mle <- data.frame(fit_enigh_1[['marg']]$prob)
+names(probs_est_mle)[3] <- 'mle'
+probs_est_mle
+
+# repetimos con suavizamiento
+fit_enigh_2 <- bn.fit(net_enigh, data = dat_ing_muestra, method = 'bayes', 
+                      iss = 30)
+
+probs_est_bayes <- data.frame(fit_enigh_2[['marg']]$prob)
+names(probs_est_bayes)[3] <- 'bayes'
+probs_1 <- join(probs_est_mle, probs_est_bayes)
+
+# comparamos con las estimaciones que toman toda la base
+tab_df <- data.frame(tab_2)
+names(tab_df) <- c('marg', 'tam_loc', 'mle_c')
+
+# las unimos a la base de datos probs_1
+probs_2 <- join(probs_1, tab_df)
+
+# creamos dos nuevas variables: método y estimación para poder graficar
+probs_2_l <- gather(probs_2, metodo, est, mle, bayes, mle_c)
+
+ggplot(probs_2_l, aes(x = marg, y = est, colour = metodo)) + 
+  geom_jitter(size=3,position=position_jitter(width=0.1, height=0))+
+  facet_wrap(~ tam_loc)
+```
+
+Muy poca regularización (iss chica) típicamente no tiene efectos negativos (y 
+conviene hacerla para evitar estimación de ceros), pero puede ser que demasiada 
+regularización sí. Este parámetro puede ser escogido mediante validación 
+cruzada, o desde un punto de vista bayesiano con información previa.
+
+**Ejemplo.** Cuando los modelos son más complejos, la estimación de máxima 
+verosimilitud puede ser muy mala, por ejemplo:
+
+```{r, warning=FALSE}
+mle_vehiculo <- data.frame(fit_enigh_mle[['vehiculo']]$prob)
+mle_vehiculo_true <- filter(mle_vehiculo, vehiculo == 'TRUE', 
+                            nivelaprob!='No esp')
+
+ggplot(mle_vehiculo_true, aes(x = nivelaprob, y = Freq, colour = decil, 
+                              group = decil)) + 
+  facet_wrap(~ sexojefe) +
+  geom_point() + 
+  geom_line() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+
+```{r}
+fit_enigh_b <- bn.fit(net_enigh, data = dat_ing_f, method = 'bayes', iss = 1000)
+b_vehiculo <- data.frame(fit_enigh_b[['vehiculo']]$prob)
+b_vehiculo_true <- filter(b_vehiculo, vehiculo == 'TRUE',
+                          nivelaprob!='No esp')
+
+ggplot(b_vehiculo_true, aes(x = nivelaprob, y = Freq, colour = decil, 
+                              group = decil)) + 
+  facet_wrap(~ sexojefe) +
+  geom_point() + 
+  geom_line() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+
+### Probabilidades condicionales basadas en árboles
+
+Podemos usar árboles de decisión para construir versiones compactas de 
+probabilidades condicionales.
+
+**Ejemplo.** Una carta de recomendación buena del profesor A da una probabilidad 
+de 0.6 de conseguir el trabajo, mientras que una carta mala de 0.4. Para el 
+profesor B, las probabilidades son 0.8 y 0.4. Consideramos la siguiente gráfica:
+
+```{r}
+library(igraph)
+gr <- graph(c(1, 2, 3, 2, 4, 2))
+plot(gr,
+  vertex.label = c('ProfA', 'Trabajo', 'ProfB', 'Carta'),    
+  layout = matrix(c(0, 1, 0.6, 0, 0,-1, 0, 0), byrow = TRUE, ncol = 2),
+  vertex.size = 20, vertex.color = 'salmon', vertex.label.cex = 1.2,
+  vertex.label.color = 'gray40', vertex.frame.color = NA, asp = 0.8, 
+  edge.arrow.size = 1)
+```
+
+La tabla de probabilidad condicional correspondiente a _Trabajo_ tiene un total 
+de 8 parámetros. Sin embargo, por la observación anterior, en relidad está  dada 
+por 2 parámetros, pues _Trabajo_ sólo depende de _ProfA_ cuando _Carta=A_, y 
+sólo depende de _ProfB_ cuando _Carta=B_ (con las mismas probabilidades 0.6 y 
+0.4).
+
+Representamos este escenario mediante un árbol:
+
+<img src="imagenes/cartas_recom.png" width="500px"/>
+
+La estructura adicional que observamos es que cuando Carta=A, Trabajo es 
+condicionalmente independiente de Prof B, y cuando Carta=B, Trabajo es 
+condiconalmente independiente de ProfA. Esta es una independencia condicional 
+distinta a las que vimos antes: dice que para **ciertos niveles de alguna 
+variable, existen independencias condicionales entre  otras variables**. Esto 
+**no quiere decir** que dado Carta, Trabajo sea condicionalmente independiente 
+de ProfA o ProfB. Otra manera de decir esto es que estos modelos locales pueden 
+tener información de independencias condicionales en ciertos contextos (para 
+valores particulares de las variables).
+
+**Ejemplo**
+
+```{r}
+library(rpart)
+library(rpart.plot)
+library(rattle)
+set.seed(22857)
+
+# simulamos datos
+prof_a <- sample(c('Buena', 'Mala', 'Mala'), 400, replace = T)
+prof_b <- sample(c('Buena', 'Buena', 'Mala'), 400, replace = T)
+carta <- sample(c('A', 'B'), 400, replace = T)
+datos_sim <- data.frame(prof_a, prof_b, carta)
+
+# describimos las probabilidades
+probas <- datos_sim %>%
+  distinct() %>%
+  mutate(proba = (prof_a == 'Mala' & carta == 'A') * 0.4 +
+           (prof_b == 'Mala' & carta == 'B') * 0.4 +
+           (prof_a == 'Buena' & carta == 'A') * 0.6 +
+           (prof_b == 'Buena' & carta == 'B') * 0.8)
+
+probas
+
+# finalmente simulamos si consigue el trabajo
+datos_1 <- inner_join(datos_sim, probas) 
+datos_1$consigue <- rbinom(nrow(datos_1), size = 1, prob = datos_1$prob)
+
+# usamos un árbol de decisión
+arbol_1 <- rpart(consigue ~ prof_a + prof_b + carta, datos_1, method = 'class',
+                 cp = 0)
+printcp(arbol_1)
+fancyRpartPlot(arbol_1)
+```
+
+Aunque, sin más información, no hay garantía de recuperar la forma original.
+
+```{r}
+set.seed(46654)
+
+prof_a <- sample(c('Buena', 'Mala', 'Mala'), 300, replace = T)
+prof_b <- sample(c('Buena', 'Buena', 'Mala'), 300, replace = T)
+carta <- sample(c('A', 'B'), 300, replace = T)
+datos_sim <- data.frame(prof_a, prof_b, carta)
+
+# describimos las probabilidades
+probas <- datos_sim %>%
+  distinct() %>%
+  mutate(proba = (prof_a == 'Mala' & carta == 'A') * 0.4 +
+           (prof_b == 'Mala' & carta == 'B') * 0.4 +
+           (prof_a == 'Buena' & carta == 'A') * 0.6 +
+           (prof_b == 'Buena' & carta == 'B') * 0.8)
+
+# finalmente simulamos si consigue el trabajo
+datos_1 <- inner_join(datos_sim, probas) 
+datos_1$consigue <- rbinom(nrow(datos_1), size = 1, prob = datos_1$prob)
+
+# usamos un árbol de decisión
+arbol_2 <- rpart(consigue ~ prof_a + prof_b + carta, datos_1, method = 'class',
+                 cp = 0)
+printcp(arbol_2)
+fancyRpartPlot(arbol_2)
+
+# usamos un árbol de decisión
+arbol_3 <- rpart(consigue ~ prof_a + prof_b + carta, datos_1, method = 'class',
+                 cp = 0, cost = c(100, 100, 1))
+printcp(arbol_3)
+fancyRpartPlot(arbol_3)
+```
+
+### Modelos lineales generalizados
+
+Otra técnica es utilizar modelos logísticos multinomiales (o simplemente 
+logístico cuando la respuesta tiene 2 niveles). La ventaja de este enfoque es 
+que podemos controlar la complejidad del modelo a través de inclusión/exclusión 
+de interacciones y regularización.
+
+```{r}
+net_enigh <- hc(dat_ing_f,  score='aic', blacklist = black)
+net_enigh
+fit_enigh <- bn.fit(net_enigh, data = dat_ing_f, method='mle')
+graphviz.plot(net_enigh)
+```
+
+Nos interesa el nodo de posesión de vehículo dado decil, nivel aprobado del
+jefe de familia y sexo del jefe de familia. En este caso, utilizaremos un modelo
+logístico regularizado. 
+
+Los datos se ven como sigue:
+
+```{r, fig.height=4.5}
+library(tidyr)
+dat_res <- dat_ing_f %>%
+  group_by(sexojefe, nivelaprob, decil, vehiculo) %>%
+  dplyr::summarise(num = n()) %>%
+  group_by(sexojefe, nivelaprob, decil) %>%
+  mutate(total = sum(num)) %>%
+  ungroup() %>%
+  mutate(prop = num/total)
+dat_res
+
+dat_res_sub <- filter(dat_res, vehiculo==TRUE, num > 5)
+
+cuadrado <- function(x){x ^ 2}
+ggplot(dat_res_sub, aes(x = nivelaprob, y = prop, colour = decil, 
+  group = decil)) + 
+  geom_point(aes(size = sqrt(num))) +
+  geom_line() +
+  facet_wrap(~sexojefe) + 
+  scale_size_continuous("# obs.", labels = cuadrado) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+Comenzamos con un modelo simple, con poca regularización:
+
+```{r, warning=FALSE, message=FALSE}
+library(arm)
+
+# vemos como se ve la variable vehículo
+table(dat_ing$vehiculo)
+
+dat_ing$vehiculo_l <- as.logical(dat_ing$vehiculo == "TRUE")
+table(dat_ing$vehiculo_l)
+# modelo con poca regularización
+mod_1 <- bayesglm(vehiculo_l ~ sexojefe + nivelaprob + decil, data = dat_ing,
+  prior.scale = 2.5, family = 'binomial')
+display(mod_1)
+mod_1$aic
+```
+
+Agregamos las interacciones de sexojefe con decil.
+
+```{r}
+mod_2 <- bayesglm(vehiculo ~ sexojefe + nivelaprob + decil + 
+  sexojefe:decil, data = dat_ing, prior.scale = 2.5, family = 'binomial')
+display(mod_2)
+mod_2$aic
+```
+
+Agregamos ahora la interacción sexojefe con nivelaprob, notemos que 
+incluir esta interacción incrementa considerablemente el aic,
+
+```{r}
+mod_3 <- bayesglm(vehiculo ~ sexojefe + nivelaprob + decil + 
+  sexojefe:nivelaprob + decil:nivelaprob, data = dat_ing,
+  prior.scale = 2.5, family = 'binomial')
+display(mod_3)
+mod_3$aic
+```
+
+Ahora vemos las probabilidades estimadas del modelo 2:
+
+```{r}
+# creamos una base con todas las combinaciones de niveles de las variables
+grid_1 <- expand.grid(list(sexojefe = unique(dat_ing$sexojefe), 
+  nivelaprob = unique(dat_ing$nivelaprob),
+  decil = unique(dat_ing$decil)), stringsAsFactors = FALSE)
+
+# calculamos la probabilidad para cada caso usando predict
+grid_1$prob <- predict(mod_2, grid_1, type = 'response')
+grid_1$metodo <- "logística"
+
+# obtenemos la siguietnte base de datos
+head(grid_1)
+
+# y unimos con proporciones (MLE) para comparar
+dat_res$metodo <- "proporción"
+probs_est <- filter(dat_res, vehiculo == TRUE) %>%
+  dplyr::select(sexojefe, nivelaprob, decil, prob = prop, metodo) %>% 
+  rbind(grid_1) %>% 
+  filter(nivelaprob != "No esp")
+  
+ggplot(probs_est, aes(x = nivelaprob, y = prob, colour = decil, group = decil)) + 
+  geom_line() +
+  facet_grid(metodo ~ sexojefe) + 
+  theme(axis.text.x=element_text(angle = 45, hjust = 1))
+```
+
+Y podemos incluir intervalos de probabilidad.
+
+```{r, fig.height=4.5}
+# realizamos simulaciones de los parámetros
+sims <- sim(mod_2, 100)
+str(sims)
+# y los utilizamos en la función predict
+mod_2$coefficients <- sims@coef[3, ]
+grid_1$prob <- predict(mod_2, grid_1, type='response')
+
+# repetimos este procedimiento para cada conjunto de coeficientes simulados
+dat_sims <- ldply(1:100, function(i){
+  mod_2$coefficients <- sims@coef[i, ]
+  grid_1$prob <- predict(mod_2, grid_1, type='response')
+  grid_1$sim_no <- i
+  grid_1
+})
+
+# calculamos los cuantiles a partir de las probabilidades simuladas
+dat_sims_1 <- dat_sims %>%
+  group_by(sexojefe, nivelaprob, decil) %>%
+  summarise(
+    media = mean(prob), 
+    q_10 = quantile(prob, 0.1), 
+    q_90 = quantile(prob,0.9)
+    ) %>%
+  filter(nivelaprob != 'No esp')
+
+ggplot(dat_sims_1, aes(x = nivelaprob, y = media, colour = decil, group = decil,
+  ymin = q_10, ymax = q_90)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~ sexojefe) + 
+  geom_linerange()+ 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Finalmente checamos la calibración del modelo con los datos (las probabilidades
+estimadas reflejan probabilidades empíricas:
+
+```{r, fig.height=4}
+library(Hmisc) # función cut2
+
+mod_2 <- bayesglm(vehiculo ~ sexojefe + nivelaprob + decil + 
+  sexojefe:decil, data = dat_ing, prior.scale = 2.5, family = 'binomial')
+
+# predecimos para las observaciones en la base de datos
+dat_ing$prob <- predict(mod_2, type = 'response')
+
+dat_cal <- dat_ing_f %>% 
+  mutate(
+    prob = predict(mod_2, type = 'response'),
+    grupo_prob = cut2(prob, g = 20, levels.mean = TRUE)
+      ) %>%
+  group_by(grupo_prob) %>%
+  summarise(
+    num = n(),
+    total_vehiculo = sum(vehiculo == TRUE)
+    ) %>%
+  mutate(
+    prob_emp = total_vehiculo / num, 
+    grupo_prob_n = as.numeric(as.character(grupo_prob))
+    )
+
+ggplot(dat_cal, aes(x = grupo_prob_n, y = prob_emp)) +
+  geom_abline(intercept = 0, slope = 1, color = "red") +
+  geom_point() +
+  xlab("Probabilidades empíricas") +
+  ylab("Probabilidades estimadas")
+
+```
+
+Y obtenemos la tabla de la probabilidad condicional,
+
+```{r}
+grid_1
+```
+
+que incluimos a nuestro modelo local en la red:
+
+```{r}
+fit_enigh <- bn.fit(net_enigh, data = dat_ing_f, method = 'mle')
+fit_enigh[['vehiculo']]
+grid_1$vehiculo <- 'TRUE'
+grid_2 <- grid_1
+grid_2$prob <- 1-grid_2$prob
+grid_2$vehiculo <- 'FALSE'
+grid_3 <- rbind(grid_1, grid_2)
+tab_veh <- xtabs(prob ~ vehiculo + decil + nivelaprob + decil + sexojefe, 
+  data = grid_3)
+tab_veh
+fit_enigh_b[['vehiculo']] <- tab_veh
+```
+
+
+### Nodos multinomiales
+
+En el siguiente ejemplo veremos cómo hacer un modelo multinomial: modelamos 
+decil dado marginación y nivelaprobado. Utilizaremos una combinación 
+de regresión Ridge y Lasso con el fin de regularizar, para esto usamos
+el paquete [glmnet](http://web.stanford.edu/~hastie/glmnet/glmnet_alpha.html).
+
+```{r, warning=FALSE}
+library(glmnet)
+
+mat_1 <- model.matrix(~ -1 + marg + nivelaprob + marg:nivelaprob, 
+  data = dat_ing)
+mod_decil <- cv.glmnet(y = dat_ing$decil, x = mat_1, alpha  = 0.5, 
+  family = 'multinomial')
+plot(mod_decil)
+```
+
+Hacemos las predicciones:
+
+```{r}
+grid_pred <- expand.grid(list(marg = unique(dat_ing$marg), 
+  nivelaprob = unique(dat_ing$nivelaprob)), stringsAsFactors = FALSE)
+
+mat_pred <- model.matrix(~ -1 + marg + nivelaprob + marg:nivelaprob, 
+  data = grid_pred)
+
+mod_decil_pred <- predict(mod_decil, s = exp(-4), type = 'response', 
+  newx =  mat_pred)[, , 1]
+
+dat_pred <- cbind(grid_pred, mod_decil_pred)
+head(dat_pred)
+```
+
+Y ahora podemos examinar cómo están las predicciones del modelo.
+
+```{r, fig.width=9}
+dat_pred_l <- gather(dat_pred, nivel_decil, prob, 3:12)
+
+ggplot(dat_pred_l, aes(x = nivelaprob, y = prob, colour = marg, group = marg)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~ nivel_decil, nrow=2) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+
+```{r}
+colnames(dat_pred_l)[3] <- "decil"
+tab_decil <- xtabs(prob ~ decil + marg + nivelaprob, data = dat_pred_l)
+tab_veh
+fit_enigh_b[['decil']] <- tab_decil
+```
+
+
+![](../../computo/imagenes/manicule2.jpg) Exporta la red a SAMIAM y compara con la red que usó MLE.

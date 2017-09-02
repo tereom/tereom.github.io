@@ -1,0 +1,527 @@
+---
+title: "10-Más variables latentes"
+author: "Teresa Ortiz"
+output: 
+  html_document:
+    theme: spacelab
+---
+<style>
+.caja {
+    background-color:mistyrose;
+    padding:5px;
+    margin: 20px 0;
+    border-radius: 3px;
+}
+
+.clicker {
+    padding:8px;
+    margin: 20px 0;
+    border: 0px solid whitesmoke;
+    border-left-width: 5px;
+    border-radius: 3px;
+    font-size: 90%
+    font-color:dimgrey;
+}
+</style>
+
+```{r, echo=FALSE}
+source("../../computo/codigo/tema_ggplot.R")
+options(digits = 2)
+```
+
+
+```{r, message=FALSE, echo=FALSE, warning=FALSE}
+library(plyr)
+library(dplyr)
+library(tidyr)
+```
+
+Continuamos con ejemplos de modelos da variable latentes:
+
+Latentes/Observadas|  Métricas | Categóricas
+-------------------|-----------|-------------
+**Métricas**| Análisis de factores (FA) | Modelos de rasgos latentes (LTM)
+**Categóricas** | Modelos de perfiles latentes (LPM) | Modelos de clases latentes (LCM)
+
+## Análisis de clase latente
+El análisis de clase latente es un tipo de modelo de mezclas finitas, se utiliza 
+cuando observamos variables categóricas
+y nos interesa investigar si existe alguna fuente que explique patrones en las
+variables observadas, o identificar y caracterizar agrupaciones de observaciones 
+o individuos. Algunos lugares donde se aplican estos modelos son: encuestas de 
+opinión pública, exámenes psicométricos y análisis de comportamiento del consumidor.
+
+Más formalmente, el análisis de clase latente busca estratificar una tabla de 
+contingencias de variables observadas con una variable no observada que induzca
+independencias condicionales en las variables observadas. El modelo agrupa cada
+observación en una clase latente (un nivel de la variable).
+
+**Ejemplo.** Supongamos que aplicamos una prueba a un grupo de estudiantes y nos
+interesa analizar si los resultados en la prueba se pueden explicar mediante una
+variable latente que mida la habilidad de cada estudiante, más aún, nos gustaría
+clasificar a los estudiantes en grupos de acuerdo a la habilidad observada. En 
+este ejemplo, cada pregunta en la prueba es una variable aleatoria que denotamos 
+$Y_i$ y toma dos valores $0$ si la respuesta es incorrecta y $1$ en otro caso.
+
+Ahora simulamos este ejemplo donde suponemos que se realiza la prueba a 1,500 
+estudiante, el examen tiene 4 secciones (mide 4 áreas de habilidad) que 
+representan las variables observadas $Y_1,..., Y_4$. La probabilidad de que un
+estudiante ascierte cada pregunta depende del grupo de habilidad al que 
+pertenece, en la práctica esta es la variable no observada. Adicionalmente, 
+en nuestro ejemplo la probabilidad de pertenecer a cada grupo de habilidad es 
+distinta.
+
+Entonces, simulamos como sigue:
+
+* 1,500 alumnos pertenecientes a 3 grupos, la probabilidad de pertenecer a cada 
+grupo es 0.25, 0.5 y 0.25:
+```{r}
+set.seed(346713443)
+N <- 1500
+x_0 <- rmultinom(N, size = 1, prob = c(0.25, 0.50, 0.25))
+obs <- tbl_df(data.frame(id = 1:N, gpo  = c(1:3 %*% (x_0))))
+obs
+```
+
+* La probabilidad de acertar en cada área de habilidad varía de acuerdo al 
+grupo.
+
+```{r, message=FALSE}
+pi <- tbl_df(data.frame(gpo = rep(1:3, 4), prueba = rep(1:4, each = 3),
+  p = c(0.05, 0.45, 0.80, 0.10, 0.50, 0.90, 0.20, 0.80, 0.75, 0.15, 0.90, 0.45)))
+pi
+```
+
+$p=4$ items, cada uno puede tomar dos valores, 0 si la respuesta es incorrecta
+y 1 en otro caso.
+
+```{r}
+obs_items <- inner_join(obs, pi) %>%
+  group_by(id, gpo, prueba) %>%
+  mutate(Y = rbinom(1, 1, p)) %>%
+  dplyr::select(-p) %>%
+  spread(prueba, Y)
+
+colnames(obs_items)[3:6] <- paste("Y", 1:4, sep = "_")
+obs_items
+```
+
+Veamos la red bayesiana asociada a las variables observadas que generamos,
+
+```{r, fig.height=3.6, fig.width=3.6, warning=FALSE, message=FALSE}
+library(igraph)
+library(bnlearn) 
+
+obs_items_f <- obs_items %>%
+  mutate_each(funs(factor)) %>%
+  data.frame
+
+net_obs <- hc(obs_items_f[, 3:6],  score='bic')
+graphviz.plot(net_obs)
+```
+
+Ahora veamos que ocurre cuando añadimos la variable _latente_ que similumaos
+```{r, fig.height=3.6, fig.width=3.6}
+net_obs_cl <- hc(obs_items_f[, 2:6],  score='bic')
+graphviz.plot(net_obs_cl)
+```
+
+<div class="clicker">
+![](../../computo/imagenes/manicule2.jpg) ¿Cuántos parámetros requiere cada
+modelo?
+
+a. 15 y 11   
+b. 16 y 12     
+c. 15 y 10  
+d. 15 y 8  
+e. Ninguno de estos
+
+</div>
+
+Realizamos la estimación de la variable latente utilizando el paquete poLCA, más
+adelante explicaremos los algoritmos detrás de la función que usamos.
+
+```{r, message=FALSE, warning=FALSE}
+library(poLCA)
+f <- cbind(Y_1, Y_2, Y_3, Y_4) ~ 1
+mod_1 <- poLCA(f, (obs_items[, 3:6] + 1), nclass = 3, maxiter = 8000) 
+obs_items_f$pred_class <- factor(mod_1$predclass, levels = c(1, 2, 3), labels = 1:3)
+table(obs_items_f$gpo, obs_items_f$pred_class)  
+round(prop.table(table(obs_items_f$gpo, obs_items_f$pred_class), 1) * 100)
+```
+
+¿Qué pasa si estimamos una nueva red bayesiana incluyendo la variable latente 
+estimada?
+
+```{r, fig.height=4, fig.width=4}
+net_obs <- hc(obs_items_f[, 3:7],  score='bic')
+BIC(net_obs, data = obs_items_f[, 3:7])
+graphviz.plot(net_obs)
+net_obs_2 <- hc(obs_items_f[, 3:7],  score='bic', k = 8)
+BIC(net_obs_2, data = obs_items_f[, 3:7])
+graphviz.plot(net_obs_2)
+```
+
+
+### Estimación del modelo de clase latente
+Comencemos con notación:
+
+* Observamos $Y=(Y_1,...Y_p)$ variables categóricas, cada una con $K_j$ posibles valores (niveles de la variable)
+
+* $y_{j,k}^i = 1$ si observamos el $k$-ésimo valor, en la $j$-ésima variable,
+para $i$-ésimo individuo,  $y_{j,k}^i = 0$ en otro caso.
+
+* $\pi_{jrk}$ denota la probabilidad condicional, de que una observación en la 
+clase (latente) $r$ produzca una observación $k$ en la $j$-ésima
+variable. Por tanto para cada variable y cada clase:
+
+$$\sum_{k=1}^{K_j} \pi_{rjk} = 1$$
+
+* Sea $\delta$ un vector de R dimensiones donde $\delta_r \in \{0,1\}$ con 
+$r=1,...,R$ y $\sum_{r}\delta_r=1$. Entonces, $\delta_r^i=1$ representa que la 
+$i$-ésima observación pertenece a la $r$-ésima clase.
+
+* $q_r$ denota las proporciones correspondientes a los ponderadores de la 
+mezcla, esto es $P(\delta_r=1)=q_r$ y 
+$$\sum_r q_r= 1$$
+Los valores $q_r$ también se conocen como las probabilidades _iniciales_ de 
+pertenencia a la clase latente pues representan las probabilidades no 
+condicionales de que un individuo pertenezca a cada clase antes de observar las
+respuestas $y_{j,k}^i$.
+ 
+En el caso del ejemplo (exámen de habilidad) observamos $p = 4$ variables 
+binarias $Y_j$.
+
+```{r}
+head(obs_items[, 3:6])
+```
+
+Las probabilidades condicionales _reales_ para cada variable $Y_j$ (prueba) y 
+cada clase $k$ (gpo) son:
+
+```{r}
+spread(pi, gpo, p)
+```
+
+y las estimadas
+
+```{r}
+round(rbind(mod_1$probs$Y_1[, 2], mod_1$probs$Y_2[, 2], mod_1$probs$Y_3[, 2], 
+  mod_1$probs$Y_4[, 2]), 2)[, c(3, 2, 1)]
+```
+
+Finalmente, las probabilidades simuladas de pertenecer a cada clase son 
+0.25, 0.50 y 0.25, mientras que estimadas son:
+
+```{r} 
+mod_1$P[c(3, 2, 1)]
+```
+
+Ahora, la probabilidad de que un individuo $i$ perteneciente a la clase $r$
+produzca un conjunto de observaciones $y^i$ es:
+
+$$p(y^i|\delta_r=1) = \prod_{j=1}^p\prod_{k=1}^{K_j}(\pi_{jrk})^{y_{jk}^i}$$
+
+y la función de densidad a través de todas las clases es
+
+$$p(y^i) = \sum_{r=1}^R p(y^i|\delta_r=1) p(\delta_r^i=1)$$
+$$=\sum_{r=1}^R p(y^i|\delta_r^i=1)q_r$$
+$$ =\sum_{r=1}^R q_r \prod_{j=1}^p\prod_{k=1}^{K_j}(\pi_{jrk})^{y_{jk}^i}$$
+
+Escribamos la log-verosimilitud respecto a $q_r$ y $\pi_{jrk}$:
+
+$$\log\mathcal{L}=\sum_{i=1}^N \log \big\{\sum_{r=1}^R q_r \prod_{j=1}^p\prod_{k=1}^{K_j}(\pi_{jrk})^{y_{jk}^i}\big\} $$
+
+Notamos que este problema es un buen candidato para **EM** ya que la clase de 
+cada individuo es un dato faltante.
+
+1. Iniciamos con valores _arbitrarios_ $\hat{q}_r$ y $\hat{\pi}_{jrk}$.
+
+2. En el paso de esperanza hace falta calcular la esperanza de las variables
+faltantes condicional a $\hat{q}_r$ y $\hat{\pi}_{jrk}$. Esto es 
+muy similar al caso de mezclas gaussianas:
+$$\hat{\gamma}^i_r=E_{\hat{\theta}}(\delta^i_r|y^i)=P_{\hat{\theta}}(\delta^i_r=1|y^i),$$
+podemos usar la fórmula de Bayes para calcular la probabilidad de que cada 
+individuo pertenezca a cada clase (condicional en las variables observadas):
+
+$$\hat{\gamma}^i_r = \frac{p_{\hat{\theta}}(y^i|\delta_r^i=1)\hat{q}_r}{\sum_{l=1}^R {p_{\hat{\theta}}(y^i|\delta_l^i=1)\hat{q}_l}}$$
+
+
+3. En el paso de maximización actualizamos los valores de los parámetros 
+maximizando la función de verosimilitud dadas $\hat{\gamma}^i_r$:
+
+$$\hat{q}_r = \frac{1}{N} \sum_{i=1}^N \gamma_r^i$$
+$$\hat{\pi}_{jr} = \frac{\sum_{i=1}^N y_{j}^i \cdot \gamma_r^i}{\sum_{l=1}^N \gamma_r^i}$$
+
+Los pasos 2 y 3 se repiten hasta alcanzar convergencia.
+
+Vale la pena notar que el modelo no determina el número de clases; sin embargo, 
+a diferencia de otras técnicas para crear _clusters_, en los modelos de clase
+latente tenemos medidas de ajusre que nos pueden euxiliar en determinar el 
+número de grupos. Una manera de proceder es comenzar con el modelo de un solo
+grupo e ir incrementando el número de clases latentes (y por tanto la 
+complejidad del modelo) usando como criterio el AIC o BIC.
+
+```{r}
+mod_1c <- poLCA(f, (obs_items[, 3:6] + 1), nclass = 1, verbose = FALSE) 
+mod_1c$aic
+mod_1c$bic
+
+mod_2c <- poLCA(f, (obs_items[, 3:6] + 1), nclass = 2, verbose = FALSE) 
+mod_2c$aic
+mod_2c$bic
+
+mod_3c <- poLCA(f, (obs_items[, 3:6] + 1), nclass = 3, verbose = FALSE) 
+mod_3c$aic
+mod_3c$bic
+
+mod_4c <- poLCA(f, (obs_items[, 3:6] + 1), nclass = 4, verbose = FALSE) 
+mod_4c$aic
+mod_4c$bic
+```
+
+Es importante tener en cuenta que el número de parámetros estimados crece
+rápidamente con los valores de $R$, $J$ y $K_j$, dados estos valores el 
+número de parámetros es $R\sum_j (K_j -1) + (R-1)$. Esto también limita la 
+complejidad del modelo que se puede ajustar.
+
+![](../../computo/imagenes/manicule2.jpg)  Utilizaremos las siguientes 
+variables de los datos [HELP](http://www.bumc.bu.edu/care/research-studies/past-research-studies/help-study/): en la calle o refugio los últimos 180 días 
+(homeless), puntaje CESD mayor a 20, recibió tratamiento por abuso de sustancias
+(satreat), ligado a cuidados primarios (linkstatus). Crea conglomerados usando
+poLCA.
+
+### Observaciones
+* El análisis de clase latente es un tipo de modelo de mezclas finitas. Las 
+distribuciones que componen las mezcla son tablas de contingencia de la
+misma dimensión que la tabla observada. Siguiendo el supuesto de independencia
+condicional, la frecuencia de cada celda en cada componente de la mezcla es 
+simplemente el producto de las frecuencias marginales correspondientes a la 
+clase dada.
+
+* Observaciones con conjuntos de respuestas similares tenderán a agruparse en 
+las mismas clases latentes.
+
+* El paqute poLCA permite incluir covariables para predecir la clase a la que
+pertenece cada individuo, esta extensión se conoce como modelo de clase latente
+de regresión.
+
+### Recursos
+
+* [poLCA](http://www.jstatsoft.org/v42/i10/paper). Artículo del paquete que 
+utilizamos.  
+
+* [Blaydes y Linzer (2008)](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.323.8545&rep=rep1&type=pdf). Modelos de clase latente con regresión, estos modelos
+generalizan la idea básica de modelos de clase latente permitiendo la inclusión
+de covariables para predecir la pertencia a una clase.  
+
+* Otros ejemplos de clase latente en ciencias políticas: [Hill y Kriesi (2001)](http://www.eui.eu/Documents/DepartmentsCentres/SPS/Profiles/Kriesi/ClassificationbyOpinion-ChangingBehaviorAMixtureModelApproach.pdf), 
+[Breen (200)](http://www.jstor.org/discover/10.2307/194280?sid=21106233891513&uid=70&uid=2129&uid=4&uid=3738664&uid=2),
+[Linzer (2011)](http://pan.oxfordjournals.org/content/19/2/173.abstract).
+
+
+## Modelos de rasgos latentes: Teoría de respuesta al reactivo
+
+Los modelos de rasgos latentes cubren el caso donde se observa un conjunto de
+variables categóricas $(Y_1, ...Y_p)$ que son condicionalmente independientes
+dado un conjunto de variables latentes continuas $(X_1,...,X_q)$ (con $q<<p$). 
+Las variables no observables pueden ser inteligencia, habilidad matemática o
+verbal, actitud política o preferencias de consumidor, por tanto las 
+aplicaciones se extienden a pruebas de educación, psicológicas, de sociología y
+marketing.
+
+Veremos un ejemplo de _Teoría de respuesta al reactivo_ donde el ejemplo clásico
+es en la medición de inteligencia a través de pruebas, analizaremos en 
+particular el modelo de _Rasch_ donde suponemos que la inteligencia de un individuo es una variable aleatoria $X$ que se mide en una escala continua. Se realiza una prueba de inteligencia utilizando una batería de $p$ preguntas, 
+donde un individuo recibe un puntaje $y_j = 1$ si obtiene la respuesta correcta 
+y $y_j = 0$ en otro caso (de manera similar al ejemplo anterior). La batería de
+preguntas se utilizará para estimar la inteligencia usando:
+$$E(X|Y_1=y_1,...,Y_p = y_p)$$
+como la estimación de inteligencia para un individuo con resultados $y=(y_1,...,y_p)$. 
+Suponemos que,
+$$\pi_j(x)=p(y_j=1|X=x)=\frac{e^{x - \beta_j}}{1+ e^{x - \beta_j}}$$
+esto es,
+$$logit\pi_j(x) = x - \beta_i $$
+donde $x$ es la inteligencia y $\beta_j$ es la dificultad del reactivo $j$, para
+la estimación suponemos además que $X \sim N(0,1)$ y se procede utilizando el
+algoritmo EM.
+
+**Ejemplo.** Analizaremos los resultados del exámen de admisión a la escuela de
+derecho (LSAT) de 1000 individuos en 5 preguntas.
+
+```{r, message=FALSE,warning=FALSE}
+library(ltm)
+data(LSAT)
+head(LSAT)
+```
+
+Podemos ver el porcentaje de respuestas correctas para cada pregunta:
+
+```{r}
+apply(LSAT, 2, mean)
+```
+
+Y ajustamos el modelo básico:
+```{r}
+fit_1 <- rasch(LSAT, constraint = cbind(ncol(LSAT) + 1, 1))
+```
+
+En la siguiente tabla, $P(x_j=1|z=0)$ denota la probabilidad de una respuesta 
+postiva en el j-ésimo reactivo para el individuo promedio.
+
+```{r}
+coef(fit_1, prob = TRUE, order = TRUE)
+```
+
+Por su parte, la función _summary_ da información del ajuste y los coeficientes.
+
+```{r}
+summary(fit_1)
+
+```
+
+También podemos graficar las curvas de características y de información. En las
+curvas características la pendiente indica que tan _rápido_ cambia la 
+probabilidad de acertar como función de cambios en la variable latente.
+
+```{r, fig.height=4}
+par(mfrow = c(1, 2))
+plot(fit_1)
+plot(fit_1, type = "IIC")
+```
+
+El significado de la curva de información viene de la noción de información
+de Fisher, donde la información es el recíproco de la precisión con que se 
+estima un parámetro. En el caso de variables binarias la varianza del parámetro
+$p$ es $p(1-p)$ es así que con base en el valor estimado uno puede calcular
+la curva anterior.
+
+Podemos notar que los reactivos varían en dificultad, como resultado son 
+mejores diferenciando habilidad de individuos cerca de su ubicación en la
+escala (donde ubicación es la habilidad donde la probabilidad de responder
+correctamente es 0.50). Por una parte, los reactivos fáciles (donde hay muchas
+respuestas correctas) separan a los individuos en la parte baja de la escala
+de habilidad, mientras que los reactivos difíciles separasn a los 
+individuos en la parte alta.
+
+```{r, fig.width=4.5, fig.height=4.5, eval = FALSE}
+
+prob_Yj <- function(x, beta_j){exp(x - beta_j) / (1 + exp(x - beta_j))}
+grid <- data.frame(x = seq(-4, 4, 0.1), y = seq(0, 1, 1/80))
+
+ggplot(grid, aes(x = x, y = y)) + 
+  stat_function(fun = prob_Yj, arg = list(beta_j = coef(fit_1)[1]), 
+                color = "red") + 
+  stat_function(fun = prob_Yj, arg = list(beta_j = coef(fit_1)[2]), 
+                color = "blue") + 
+  stat_function(fun = prob_Yj, arg = list(beta_j = coef(fit_1)[3]), 
+                color = "green") + 
+  stat_function(fun = prob_Yj, arg = list(beta_j = coef(fit_1)[4]), 
+                color = "orange") +
+  stat_function(fun = prob_Yj, arg = list(beta_j = coef(fit_1)[5])) +
+  xlab("Inteligencia") + ylab("Probabilidad")
+
+```
+
+
+Existen generalizaciones al modelo de _Rasch_, por ejemplo un modelo general es:
+$$p(Y_j=1|X=x) = c_j+(1-c_j)g\{\alpha_j(x-\beta_j)\}$$
+donde $X$ denota el nivel de la variable latente (nivel de inteligencia en
+nuestro ejemplo), $\beta_j$ la dificultad del reactivo, $c_j$ es el parámetro de
+adivinanza que expresa la probabilidad de que un examinado con nivel de 
+habilidad muy bajo responda correctamente el reactivo por suerte. $\alpha_j$ es
+el parámetro de discriminación que cuantifica en que medida el reactivo $j$
+diferencia entre sujetos con nivel bajo/alto en la variable latente. $g$ es la
+función _link_ que en el caso de variables binarias usualmente es logit o 
+probit.
+
+El modelo de _Rasch_ que vimos en el ejemplo asume $c_j=0$ y el parámetro de discriminación $\alpha_j = 1$ para todos los reactivos y la función _link_ es 
+$g = logit^{-1}$.
+
+El paquete _ltm_ permite ajustar modelos más generales:
+
+```{r, fig.height=4}
+# Estimando el parámetro de discriminación y asumiendo c_j = 0
+fit_2 <- ltm(LSAT ~ z1)
+summary(fit_2)
+par(mfrow = c(1, 2))
+plot(fit_2)
+plot(fit_2, type = "IIC")
+```
+
+
+```{r, eval =FALSE}
+probYj <- function(x, beta.j, alpha.j){exp(alpha.j*(x - beta.j))/(1+exp(alpha.j*(x - beta.j)))}
+grid <- data.frame(x = seq(-4, 4, 0.1), y = seq(0, 1, 1/80))
+ggplot(grid, aes(x = x, y = y)) + 
+  stat_function(fun = probYj, arg = list(beta.j = coef(fit.2)[1, 1],
+    alpha.j = coef(fit.2)[1, 2]), color = "red") + 
+  stat_function(fun = probYj, arg = list(beta.j = coef(fit.2)[2, 1],
+    alpha.j = coef(fit.2)[2, 2]), color = "blue") + 
+  stat_function(fun = probYj, arg = list(beta.j = coef(fit.2)[3, 1],
+    alpha.j = coef(fit.2)[3, 2]), color = "green") + 
+  stat_function(fun = probYj, arg = list(beta.j = coef(fit.2)[4, 1],
+    alpha.j = coef(fit.2)[4, 2]), color = "orange") + 
+  stat_function(fun = probYj, arg = list(beta.j = coef(fit.2)[5, 1],
+    alpha.j = coef(fit.2)[5, 2]), color = "black") +
+  xlab("Inteligencia") + ylab("Probabilidad")
+```
+
+
+```{r, fig.height=4}
+# Estimando el parámetro de discriminación (único) y de adivinanza
+fit_3 <- tpm(LSAT, type = "rasch")
+summary(fit_3)
+par(mfrow = c(1, 2))
+plot(fit_3)
+plot(fit_3, type = "IIC")
+```
+
+
+```{r, eval =FALSE}
+probYj <- function(x, beta.j, c.j, alpha.j = 0.8459125){
+  c.j + (1 - c.j) * exp(alpha.j*(x - beta.j))/(1+exp(alpha.j*(x - beta.j)))
+}
+grid <- data.frame(x = seq(-4, 4, 0.1), y = seq(0, 1, 1/80))
+ggplot(grid, aes(x = x, y = y)) + 
+  stat_function(fun = probYj, arg = list(beta.j = coef(fit.3)[1, 2],
+    c.j = coef(fit.3)[1, 1]), color = "red") + 
+  stat_function(fun = probYj, arg = list(beta.j = coef(fit.3)[2, 2],
+    c.j = coef(fit.3)[2, 1]), color = "blue") + 
+  stat_function(fun = probYj, arg = list(beta.j = coef(fit.3)[3, 2],
+    c.j = coef(fit.3)[3, 1]), color = "green") + 
+  stat_function(fun = probYj, arg = list(beta.j = coef(fit.3)[4, 2],
+    c.j = coef(fit.3)[4, 1]), color = "orange") + 
+  stat_function(fun = probYj, arg = list(beta.j = coef(fit.3)[5, 2],
+    c.j = coef(fit.3)[5, 1]), color = "black") +
+  xlab("Inteligencia") + ylab("Probabilidad")
+```
+
+Por último, el paquete ltm también da estimaciones de la habilidad, estas son 
+medidas resumen de $p(x|y)$ ($x$ es la variable latente y $y$ las observadas).
+
+```{r}
+factor.scores(fit_1)
+```
+
+
+#### Estimación
+Los parámetros del modelo se estiman maximizando la verosimilitud de los datos
+observados
+
+$$\log \mathcal{L}=\log\int p(y^i|x^i, \theta)p(x^i)dx^i$$
+
+donde $y^i$ denota el vector de respuestas del $i$-ésimo individuo, y suponemos
+que este se distribuye normal estándar y $\theta=(\alpha_j, \beta_j)$. En ltm, a
+integral se maximiza usando el algoritmo BFGS en optim o una mezcla entre EM
+y BFGS.
+
+### Observaciones
+* Existen modelos análogos para variables observables con más de dos categorias,
+la diferencia es en la función _link_.
+
+* [IRT](http://joelcadwell.blogspot.mx/2012/09/item-response-theory-developing-your.html). Es un post donde se explica la intuición de IRT en una aplicación 
+de _marketing_ usando el paquete ltm.  
+
+* En ciencias políticas se utilizan modelos de razgos latentes para estimar
+puntos ideales de votantes, por ejemplo [Clinton, Jackman y Rivers](http://www.cs.princeton.edu/courses/archive/fall09/cos597A/papers/ClintonJackmanRivers2004.pdf)

@@ -1,0 +1,254 @@
+---
+title: "06- Modelos log-lineales"
+author: "Teresa Ortiz"
+output: html_document
+---
+
+```{r, echo=FALSE}
+source("../../computo/codigo/tema_ggplot.R")
+options(digits = 2)
+```
+
+Veremos un ejemplo con los datos de Rienis (incluídos en gRim):
+
+_Data collected at the beginning of a 15 year follow-up study of probable risk
+factors for coronary thrombosis. Data are from all men employed in a car 
+factory._
+
+Variables:  
+_A table with 6 discrete variables. A: smoking, B: strenous mental work, D:
+strenuous physical work, E: systolic blood pressure, F: ratio of lipoproteins, 
+G: Family anamnesis of coronary heart disease._
+
+```{r, warning=FALSE, message=FALSE}
+library(gRim)
+library(dplyr)
+library(Rgraphviz)
+data(reinis)
+reinis_df <- data.frame(reinis)
+head(reinis_df)
+```
+
+Comenzamos con modelo de independencia:
+
+```{r, fig.height=3.5,fig.width=4.5}
+m_init <- dmod(~.^1 , data = reinis)
+plot(m_init)
+```
+
+¿Cómo vemos que este modelo no es apropiado? Obtenemos la conjunta no 
+normalizada, que está en terminos de frecuencias ajustadas.
+
+```{r, fig.height=4.5, fig.width=4.6}
+m_init$fit$fit
+ajuste_1 <- data.frame(m_init$fit$fit)
+ajuste_1$Freq_ajustada <- ajuste_1$Freq
+ajuste_1$Freq <- NULL
+dat_1 <- left_join(reinis_df, ajuste_1)
+```
+
+Podemos calcular residuales de la siguiente forma: 
+
+```{r}
+residuales <- (dat_1$Freq - dat_1$Freq_ajustada)/sqrt(dat_1$Freq_ajustada)
+```
+
+estos deben tener una distribución aproximada normal estándar pues el número de
+observaciones esperado en una celda de probabilidad p es Np, y su varianza es 
+Np(1-p). Cuando p es chica, valor esperado y varianza son aproximadamente 
+iguales. Cuando N es grande, adicionalmente, los conteos se distribuyen 
+aproximadamente poisson con media grande, que se puede aproximar con una normal 
+con media Freq\_ajusta y desviación estándar raíz de Freq\_ajustada.
+
+```{r, fig.height=4.5, fig.width=4.6}
+plot(residuales)
+qqnorm(residuales)
+abline(a = 0, b = 1)
+```
+
+Y vemos que los residuales tienen dispersión demasiado grande. Usamos aic para
+ajustar un segundo modelo:
+
+```{r}
+m_reinis <- stepwise(m_init, criterion = 'aic', details = T, 
+                     direction = 'forward', type='unrestricted')
+plot(m_reinis)
+```
+
+```{r, fig.height=4.5, fig.width=4.6}
+ajuste_1 <- data.frame(m_reinis$fit$fit)
+ajuste_1$Freq_ajustada <- ajuste_1$Freq
+ajuste_1$Freq <- NULL
+dat_1 <- left_join(reinis_df, ajuste_1)
+residuales <- (dat_1$Freq - dat_1$Freq_ajustada)/sqrt(dat_1$Freq_ajustada)
+qqnorm(residuales)
+abline(a=0,b=1)
+```
+
+en este caso el ajuste es razonable.
+
+También podemos checar cómo se desvían los observados de los ajustados
+dependiendo de las variables. Podemos empezar calculando algunas marginales.
+
+Por ejemplo:
+
+```{r}
+library(tidyr)
+library(ggplot2)
+
+dat_2 <- dat_1 %>%
+  group_by(smoke, mental, phys, systol) %>%
+  summarise(
+    Freq = sum(Freq),
+    Freq_ajustada = sum(Freq_ajustada)
+    ) %>%
+  gather(tipo, valor, Freq, Freq_ajustada)
+
+ggplot(dat_2, aes(x = smoke, y = valor/sum(reinis), colour = tipo)) + 
+  facet_grid(mental + phys ~ systol) + 
+  geom_point() +
+  labs(y = "p")
+```
+
+Veamos que ocurre si penalizamos más, esto se hace para encontrar modelos más
+simples con las relaciones más fuertes
+
+```{r}
+m_reinis <- stepwise(m_init, criterion = 'aic', k = 15, details = T,  
+                     direction = 'forward', type = 'unrestricted')
+plot(m_reinis)
+m_reinis
+```
+
+Arriba podemos leer al AIC y BIC, adicionalmente realizamos gráficas de 
+residuales:
+
+```{r, fig.height=4.5, fig.width=4.6}
+ajuste_1 <- data.frame(m_reinis$fit$fit)
+ajuste_1$Freq_ajustada <- ajuste_1$Freq
+ajuste_1$Freq <- NULL
+dat_1 <- left_join(reinis_df, ajuste_1)
+residuales <- (dat_1$Freq - dat_1$Freq_ajustada)/sqrt(dat_1$Freq_ajustada)
+qqnorm(residuales)
+abline(a = 0, b = 1)
+```
+
+El ajuste todavía es razonable. Qué pasa si checamos algunas marginales:
+
+```{r}
+dat_2 <- dat_1 %>%
+  group_by(smoke, mental, protein, systol) %>%
+  summarise(
+    Freq = sum(Freq),
+    Freq_ajustada = sum(Freq_ajustada)
+    ) %>%
+  gather(tipo, valor, Freq, Freq_ajustada)
+
+ggplot(dat_2, aes(x = smoke, y = valor/sum(reinis), colour = tipo)) + 
+  facet_grid(mental + protein ~ systol) + 
+  geom_point() +
+  labs(y = "p")
+```
+
+Podemos checar el cruce de family con mental
+
+```{r}
+# modelo
+prop.table(apply(m_reinis$fit$fit, c('family','mental'), sum),1)
+#datos
+prop.table(apply(reinis, c('family','mental'), sum), 1)
+```
+
+Es una diferencia relativamente chica, el error muestral es
+```{r}
+apply(reinis, c('family'), sum) 
+
+2 * sqrt(0.52 * (1 - 0.52) / 260)
+```
+
+así que es marginalmente consistente con los datos
+
+¿Qué pasa si penalizamos más fuerte?
+
+```{r, fig.height=4.5, fig.width=4.6}
+m_reinis_x <- stepwise(m_init, criterion = 'aic', k = 25, details = T, 
+                       direction = 'forward', type = 'unrestricted')
+plot(m_reinis_x)
+
+m_reinis_x
+ajuste_x <- data.frame(m_reinis_x$fit$fit)
+ajuste_x$Freq_ajustada <- ajuste_x$Freq
+ajuste_x$Freq <- NULL
+dat_x <- left_join(reinis_df, ajuste_x)
+
+```
+```{r, fig.height=4.5, fig.width=4.6}
+residuales <- (dat_x$Freq - dat_x$Freq_ajustada) / sqrt(dat_x$Freq_ajustada)
+qqnorm(residuales)
+abline(a = 0, b = 1)
+```
+
+Notamos evidencia clara de desajuste.
+
+```{r, eval = TRUE}
+dat_2x <- dat_x %>%
+  group_by(smoke, mental, protein, systol) %>%
+  summarise(
+    Freq = sum(Freq),
+    Freq_ajustada = sum(Freq_ajustada)
+    ) %>%
+  gather(tipo, valor, Freq, Freq_ajustada)
+
+ggplot(dat_2x, aes(x = smoke, y = valor/sum(reinis), colour = tipo)) + 
+  facet_grid(mental + protein ~ systol) + 
+  geom_point() +
+  labs(y = "p")
+```
+
+Podemos calcular intervalos para los datos para entender mejor si el modelo es
+consistente con los datos.
+
+```{r, eval = TRUE}
+
+dat_2x_p <- dat_2x %>%
+  group_by(tipo) %>%    # agrupar por frecuencia de datos o ajustada
+  mutate(Prop = valor / sum(valor)) %>%   # calcula proporción
+  select(-valor) %>% # eliminar columna de frecuencias
+  spread(tipo, Prop) %>% # separar en dos columnas las p's
+  mutate(ee = sqrt(Freq * (1 - Freq) / sum(reinis)))  # calcular error estándar
+  
+ggplot(dat_2x_p, aes(x = smoke, y = Freq, ymin = Freq - 2 * ee, 
+  ymax = Freq + 2 * ee)) +
+  geom_linerange() +
+  facet_grid(mental + protein ~ systol) +
+  geom_point() +
+  geom_point(aes(y = Freq_ajustada), colour = 'red') 
+
+```
+
+Ahora podemos examinar el modelo anterior para entender distintos aspectos de 
+los datos, usando como guía la representación gráfica.
+
+```{r}
+m_reinis <- stepwise(m_init, criterion='aic', k=15,
+  details=T,  direction='forward', type='unrestricted')
+plot(m_reinis)
+ajuste_1 <- (m_reinis$fit$fit)
+```
+
+Podemos hacer análisis condicional para una variable en términos de todos sus
+vecinos: las demas son condicionalmente independientes. Por ejemplo veamos 
+condicional de systol dado smoke y protein 
+
+```{r, fig.width=4.6, fig.height=4}
+tab_1 <- apply(ajuste_1, c('protein', 'systol', 'smoke'), sum)
+tab_1p <- data.frame(as.table(prop.table(tab_1, margin = c(1, 3))))
+tab_1p_sub <- filter(tab_1p, systol=='y')
+
+ggplot(tab_1p_sub, aes(x = protein, y = Freq, colour = smoke, group = smoke)) +
+  geom_point(size = 4) + 
+  geom_line() + 
+  ylab('Prob systol=y') 
+```
+
+

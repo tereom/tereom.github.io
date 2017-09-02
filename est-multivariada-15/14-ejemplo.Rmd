@@ -1,0 +1,1288 @@
+---
+title: "Ejemplo: estimación de tasas de mortalidad"
+output: 
+  html_document:
+    theme: spacelab
+---
+
+<style>
+.caja {
+    background-color:mistyrose;
+    padding:5px;
+    margin: 20px 0;
+    border-radius: 3px;
+}
+
+.clicker {
+    padding:8px;
+    margin: 20px 0;
+    border: 0px solid whitesmoke;
+    border-left-width: 5px;
+    border-radius: 3px;
+    font-size: 90%
+    font-color:dimgrey;
+}
+</style>
+
+```{r, echo = FALSE, message=FALSE,warning=FALSE}
+source("../../computo/codigo/tema_ggplot.R")
+options(digits = 3)
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(reshape2)
+library(tidyr)
+library(gridExtra)
+library(MASS)
+```
+
+
+En esta sección veremos un problema de estimación de tasas de mortalidad. 
+Plantearemos 3 alternativas de modelación para resolver el problema: modelo de
+unidades iguales, modelo de unidades independientes y finalmente modelo 
+jerárquico.
+
+La base de datos tiene información de todas las cirugías de transplante de 
+corazón llevadas a cabo en Estados Unidos en un periodo de 24 meses, entre 
+octubre de 1987 y diciembre de 1989. Para cada uno de los 131 hospitales, se 
+registró el número de cirugías de transplante de corazón, y el número de muertes
+durante los 30 días posteriores a la cirugía, $y$. Además, se cuenta con una 
+predicción de la probabilidad de muerte de cada paciente individual. Esta 
+predicción esta basada en un modelo logístico que incluye información a nivel 
+paciente como condición médica antes de la cirugía, género, sexo y raza. En cada
+hospital se suman las probabilidades de muerte de sus pacientes para calcular el
+número esperado de muertes, $e$, conocido como la exposición del hospital; $e$ 
+refleja el riesgo de muerte debido a la mezcla de pacientes que componen un 
+hospital particular.
+
+La matriz de datos que analizaremos considera únicamente los 94 hospitales que
+llevaron a cabo 10 o más cirugías, y consiste en las duplas $(y_{j}, e_{j})$ que
+corresponden al número observado de muertes y número de expuestos para el 
+$j$-ésimo hospital, con $j = 1,...,94$.
+
+```{r}
+library(LearnBayes)
+data(hearttransplants)
+heart <- hearttransplants
+head(heart)
+```
+
+El objetivo es obtener buenas estimaciones de las tasas de mortalidad de cada 
+hospital. Antes de comenzar a ajustar modelos complejos vale la pena observar 
+los datos. El cociente $\{y_{j}/e_{j}\}$ es el número observado de muertes por 
+unidad de exposición y se puede ver como una estimación de la tasa de 
+mortalidad. La siguiente figura grafica, en el eje vertical los cocientes 
+$\{y_{j}/e_{j}\}$ multiplicados por 1000 (con la intención de que la tasa 
+indique número de muertes por 1000 expuestos), y en el eje horizontal el número 
+de expuestos $\{e_{j}\}$ -en escala logarítmica- para los 94 hospitales. Cada 
+punto representa un hospital y esta etiquetado con el número de muertes 
+observadas $\{y_{j}\}$. En la gráfica podemos notar que las tasas estimadas son 
+muy variables, especialmente para programas con baja exposición. Observemos 
+también, que la mayoría de los programas que no experimentaron muertes tienen 
+bajo número de expuestos.
+
+```{r, fig.width=4,fig.height=4,fig.align='center'}
+ggplot(heart, aes(x = log(e), y = 1000* y / e, color = factor(y), label = y)) +
+  geom_text(show_guide = FALSE)  +
+  scale_x_continuous("Número de expuestos (e)", labels = exp, 
+    breaks = c(log(700), log(700*2), log(700*2^2), log(700*2^3), 
+      log(700*2^4))) 
+```
+
+
+La variabilidad de las tasas y los hospitales sin muertes sugieren un problema 
+de tamaño de muestra. Consideremos un hospital con 700 expuestos. La muerte por
+transplante de corazón no es común, el promedio nacional es de 9 por cada 10,000
+expuestos, por lo que con 700 expuestos es probable que no se presente ninguna 
+muerte, en este caso el hospital pertenece al 10\% de los hospitales con menor 
+tasa de mortalidad. Sin embargo, existe la posibilidad de que se observe una 
+muerte, con lo cual el hospital tendrá una tasa de mortalidad que es lo 
+suficientemente alta para que quede en el 25\% de los hospitales con mayor tasa 
+de mortalidad observada.
+
+Una vez reconocido el problema de utilizar los datos crudos para estimar las tasas de mortalidad plantearemos 3 alternativas de modelación:
+
+1. **Unidades iguales**. Considera que los estudios son replicas idénticas una 
+de otra, en este sentido vemos a las observaciones de todos los estudios como 
+muestras independientes de una misma población y consecuentemente todas las 
+$\lambda_{j}$ se consideran iguales, 
+
+$$
+  \begin{eqnarray}
+		\nonumber
+		y_{j} &\sim& f(y_{j}|\lambda),\\
+	 	\nonumber
+		\lambda &\sim& g(\lambda).
+	\end{eqnarray} 
+$$
+El modelo gráfico correspondiente a este enfoque es:
+
+<center><img src="imagenes/dag_pool.png" width="400px"/></center>
+  
+2. **Unidades independientes**. El extremo opuesto a unidades iguales considera 
+que los estudios son tan diferentes que los resultados de cada uno no proveen información acerca de los resultados de ningún otro y por tanto realizamos 
+estimaciones individuales para cada $\lambda_{j}$, 
+$$
+  \begin{align}
+		\nonumber
+		y_{j} &\sim f(y_{j}|\lambda_{j}),\\
+		\nonumber
+		\lambda_j &\stackrel{\mathrm{iid}}{\sim} g(\lambda_j).
+	\end{align}
+$$
+Con el siguiente modelo gráfico:
+
+<center><img src="imagenes/dag_ind.png" width="400px"/></center>
+
+3. Jerárquico. Es un análisis intermedio que considera los parámetros de interés
+$\lambda_{j}$ como provenientes de una distribución común,
+$$
+\begin{eqnarray}
+		\nonumber
+		y_{j} &\sim& f(y_{j}|\lambda_{j}),\\
+		\nonumber
+		\lambda_{j} &\sim& g(\lambda_j|\theta),\\
+		\theta &\sim& h(\theta).
+	\end{eqnarray} 
+$$
+
+<center><img src="imagenes/dag_jer.png" width="400px"/></center>
+
+De esta manera, la probabilidad conjunta del modelo refleja una dependencia 
+entre los parámetros al mismo tiempo que permite variaciones entre los estudios. 
+Como resultado se estima una $\lambda_{j}$ diferente para cada estudio usando 
+información de todos.  
+Notemos que la estructura del modelo jerárquico facilita la implementación del muestreador de Gibbs debido a que es inmediato factorizar la conjunta en 
+condicionales completas.
+
+### Modelo de unidades iguales
+Supongamos que las tasas de mortalidad son iguales a lo largo de los hospitales. Estimaremos la tasa de mortalidad con el modelo, 
+$$
+\begin{eqnarray}
+	\nonumber
+y_{j} \sim Poisson(e_{j}\lambda),
+\end{eqnarray}
+$$
+
+donde $y_{j}$ es el número de muertes observadas por transplante corazón en el
+hospital $j$, $e_{j}$ es el número de expuestos, y $\lambda$ es la tasa de 
+mortalidad, medida en número de muertes por unidad de exposción y común para 
+todos los hospitales.
+
+Debido a que no contamos con información inicial acerca de la tasa de mortalidad,
+asignamos a $\lambda$ una distribución inicial no informativa, de la forma
+
+$$
+\begin{eqnarray}
+	\nonumber
+	 g(\lambda)\propto\frac{1}{\lambda}.
+\end{eqnarray}
+$$
+
+Sea $y=(y_1,...,y_{94})$, usamos el Teorema de Bayes para calcular la densidad posterior de $\lambda$,
+
+$$
+\begin{eqnarray}
+	\nonumber
+	g(\lambda|y) &\propto& g(\lambda)f(y|\lambda) \\
+	\nonumber
+	&=& g(\lambda)\prod_{i=1}^{94}f(y_{i}|\lambda)\\
+	\nonumber
+	&=& \frac{1}{\lambda}\prod_{i=1}^{94}\bigg(\frac{exp(-e_{i}\lambda)(e_{i}\lambda)^{y_{i}}}{y_{i}!}\bigg)\\
+	\nonumber
+	&\propto& \lambda^{(\sum_{i=1}^{94}y_{j}-1)}exp\bigg(-\sum_{i=1}^{94}e_{j}\lambda\bigg),
+\end{eqnarray}
+$$
+identificamos la densidad posterior como una $Gamma(\sum_{i=1}^{94}y_{i},\sum_{i=1}^{94}e_{i})$, donde expresamos la función de densidad de una distribución $Gamma(\alpha, \beta)$ usando el parámetro de forma $\alpha$ y el inverso del parámetro de escala $\beta$ de manera que la función de densidad es,
+
+$$
+\begin{align}
+	\nonumber
+	&f(x|\alpha, \beta) = \beta^{\alpha}\frac{1}{\Gamma(\alpha)}x^{\alpha-1}e^{-\beta x}I_{(0,\infty)}(x)\\
+	\nonumber
+	&\mbox{para }x \geq 0 \mbox{ y }\alpha \mbox{, }\beta > 0.
+\end{align}
+$$
+
+Para verificar el ajuste del modelo utilizaremos la distribución predictiva 
+posterior. Denotemos $y_{j}^*$ el número de muertes por transplante en el 
+hospital $j$ con exposición $e_{j}$ en una muestra futura. Condicional a 
+$\lambda$, $y_{j}^*$ se distribuye $Poisson(e_{j}\lambda)$, no conocemos el 
+verdadero valor de $\lambda$, sin embargo nuestro conocimiento actual está 
+contenido en la densidad posterior $g(\lambda|y)$. Por tanto, la distribución 
+predictiva posterior de $y_{j}^*$ esta dada por: 
+
+$$
+\begin{eqnarray}
+\nonumber
+	f(y_{j}^*|e_{j},y) = \int f(y_{j}^*|e_{j}\lambda)g(\lambda|y)d\lambda, 
+\end{eqnarray}
+$$
+
+donde $f(y_j^*|e_{j}\lambda)$ es una densidad Poisson con media $\lambda$. La 
+densidad predictiva posterior representa la verosimilitud de observaciones 
+futuras basadas en el modelo ajustado. En este ejemplo, la densidad 
+$f(y_{j}^*|e_{j},y)$ representa el número de transplantes que se predecirían 
+para un hospital con exposición $e_{j}$. Entonces, si el número observado de 
+muertes $y_{j}$ no está en las colas de la distribución predictiva, diríamos que 
+la observación es consistente con el modelo observado.
+
+
+```{r, fig.width=6,fig.height=4.6,fig.align='center'}
+# La densidad posterior es Gamma con los siguientes parámetros
+c(sum(heart$y), sum(heart$e))
+heart$hospital <- 1:94
+# Simulamos 1000 muestras de la densidad posterior de lambda
+lambdas <- rgamma(1000, shape = sum(heart$y), rate = sum(heart$e))
+# ahora para cada hospital simulamos muestras de una distribución Poisson
+# con media e_i*lambda
+sims <- ddply(heart, "hospital", transform, sims = rpois(1000, e*lambdas))
+# tomamos una muestra de 10 hospitales
+set.seed(242)
+hosps <- sample(1:94, 10)
+sims.2 <- subset(sims, hospital %in% hosps)
+heart.2 <- subset(heart, hospital %in% hosps) 
+head(sims.2)
+
+ggplot(sims.2, aes(x = sims)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 1, color = "darkgray", 
+    fill = "darkgray") +
+  facet_wrap(~ hospital, nrow = 2) +
+  geom_segment(data = heart.2, aes(x = y, xend = y, y = 0, yend = 0.5), 
+    color = "red") + 
+  geom_text(data = heart.2, aes(x = 10, y = 0.4, label = paste("e =", e)), 
+    size = 2.7)
+```
+
+La figura muestra los histogramas, obtenidos con simulación, de la distribución
+predictiva posterior de 10 hospitales (se tomó una muestra de los 94). Para cada
+hospital, se escribió el número de expuestos, $e$, y se grafica una línea 
+vertical en el número de muertes observado. Notemos que en muchos de los 
+histogramas el número de muertes observado se encuentra en las colas de las 
+distribuciones, lo que sugiere que nuestras observaciones son inconsistentes con 
+el modelo ajustado.
+
+Ahora examinaremos la consistencia de las muertes observadas, $y_{j}$, para 
+todos los hospitales. Para cada distribución predictiva posterior calculamos la
+probabilidad de que una observación futura $y_{j}^*$ sea al menos tan extrema 
+como $y_{j}$, estas probabilidades son comúnmente llamadas valores p 
+predictivos: 
+
+$$
+\begin{eqnarray}
+	\nonumber
+	P(extremos) = min\{P(y_{j}^* \leq y_{j}),P(y_{j}^*\geq y_{j})\}
+\end{eqnarray}
+$$
+
+
+```{r, fig.width=4,fig.height=4,fig.align='center'}
+# Para calcular las p predictiva podemos usar las simulaciones
+p.pred <- ddply(sims, "hospital", summarise, p = min(sum(sims <= y) / 1000, 
+  sum(sims >= y) / 1000))
+head(p.pred)
+p.pred.2 <- join(heart, p.pred, by = "hospital")
+ggplot(p.pred.2, aes(x = log(e), y = p)) + 
+  geom_point() +
+  scale_x_continuous("Número de expuestos (e)", labels = exp, 
+    breaks = c(log(700), log(700*2), log(700*2^2), log(700*2^3), 
+      log(700*2^4))) + 
+  ylab("P(extremos)") +
+  geom_hline(yintercept = .15, colour = "red", size = 0.4) +
+  ylim(0, .7) 
+```
+
+En la figura anterior graficamos las probabilidades de extremos (calculadas con simulación) en el eje vertical, contra el número de exposición en escala logarítmica de cada hospital en el eje horizontal. Notemos que muchas de estas probabilidades son pequeñas, el 28\% son menores a 0.15, lo que indica que para el 28\% de los hospitales el número de muertes observado $y_{j}$ está en la cola de la distribución y por consiguiente el modelo es inadecuado.\medskip
+
+
+### Modelo de unidades independientes
+
+Consideremos ahora que los hospitales son independientes, estimaremos la tasa de
+mortalidad para cada hospital con el modelo
+
+$$
+\begin{eqnarray}
+	\nonumber
+	y_{j}\sim Poisson(e_{j}\lambda_{j}),
+\end{eqnarray}
+$$
+
+donde $y_{j}$ es el número de muertes observadas por transplante corazón en el 
+hospital $j$, $e_{j}$ es el número de expuestos, y $\lambda_{j}$ es la tasa de
+mortalidad, medida en número de muertes por unidad de exposición, con
+$j=1,...,94$. Utilizamos el subíndice $j$ para enfatizar que son parámetros 
+diferentes, cada uno estimado con sus propios datos.
+
+Por facilidad asignamos a $\lambda_{j}$ una distribución inicial 
+$Gamma(\alpha_{0}, \beta_{0})$ que es conjugada de la distribución Poisson,
+
+$$
+\begin{eqnarray}
+\nonumber
+	g(\lambda_{j}|\alpha_{0},\beta_{0}) = \frac{\beta_{0}^{\alpha_{0}} \lambda_{j}^{\alpha_{0}-1}exp(-\lambda_{j} \beta_{0})}{\Gamma(\alpha_{0})}, \lambda_{j}>0.
+\end{eqnarray}
+$$
+
+Calculamos la densidad posterior de $\lambda_{j}$ usando el Teorema de Bayes,
+
+$$
+\begin{eqnarray}
+	\nonumber
+	g(\lambda_{j}|y_{j},\alpha_{0},\beta_{0}) &\propto& g(\lambda_{j}|\alpha_{0},\beta_{0})f(y_{j}|\lambda_{j})\\
+	\nonumber
+	&=& \frac{\beta_{0}^{\alpha_{0}} \lambda_{j}^{\alpha_{0}-1}exp(-\lambda_{j} \beta_{0})}{\Gamma(\alpha_{0})}\frac{exp(-e_{j}\lambda_{j})(e_{j}\lambda_{j})^{y_{j}}}{y_{j}!}\\
+	\nonumber
+	&\propto& \lambda_{j}^{\alpha_{0}+y_{j}-1}exp(-\lambda_{j}(\beta_{0}+e_{j})),
+\end{eqnarray}
+$$
+
+y obtenemos que $\lambda_{j}|y_{j} \sim Gamma(\alpha_{0}+y_{j}, \beta_{0}+e_{j})$, con media
+
+$$
+\begin{eqnarray}
+	\nonumber
+	E(\lambda_{j}|y_{j},\alpha_{0},\beta_{0}) &=& \frac{\alpha_{0}+y_{j}}{\beta_{0}+e_{j}}\\
+	\label{eqn:pond.indep}
+	&=& (1-A_{j})\frac{y_{j}}{e_{j}}+A_{j}\frac{\alpha_{0}}{\beta_{0}}
+\end{eqnarray}
+$$
+
+donde
+
+$$
+\begin{eqnarray}
+	A_{j}=\frac{\beta_{0}}{\beta_{0}+e_{j}},
+\end{eqnarray}
+$$
+y varianza
+
+$$
+\begin{eqnarray}
+	\nonumber
+	Var(\lambda_{j} |y_{j},\alpha_{0},\beta_{0}) = \frac{\alpha_{0}+y_{j}}{(\beta_{0}+e_{j})^2}.
+\end{eqnarray}
+$$
+
+Notemos que podemos escribir la media posterior como un promedio ponderado de la 
+tasa observada $y_{j}/e_{j}$ y la media inicial $\alpha_{0} / \beta_{0}$. El 
+factor $A_{j}$ es el encogimiento hacia la media inicial y depende del número de
+exposición de cada hospital y del parámetro de escala $\beta_{0}$.
+
+#### Efecto de ${\beta_{0}}$ y ${e_{j}}$ en la distribución posterior
+
+Consideremos la media y varianza posteriores de $\lambda_{j}$ para un hospital
+particular. Tomando $\alpha_{0}$ fija, valores mayores de $\beta_{0}$ 
+corresponden a una menor varianza en la distribución inicial pues 
+$Var(\lambda_{j} | \alpha_{0},\beta_{0}) = \alpha_{0}/\beta_{0}^2$. La varianza 
+de la distribución inicial se refleja en la media de la distribución posterior 
+de $\lambda_{j}$ a través de $\beta_{0}$, menor varianza (mayor $\beta_{0}$) 
+corresponde a mayor encogimineto hacia la media inicial. Este efecto de 
+$\beta_{0}$ concuerda con la incertidumbre de nuestro conocimiento, pues menor 
+varianza en la distribución inicial indica menor incertidumbre y la aportación 
+de la media inicial a la media posterior es más importante. La elección de 
+$\beta_{0}$ también afecta la varianza, pues un menor valor de $\beta_{0}$ 
+implica una mayor varianza tanto en la distribución inicial como en la final.
+
+Por su parte, tomando $\alpha_{0}$ y $\beta_{0}$ fijas, el efecto del número de
+expuestos $e_{j}$ sobre la media posterior de $\lambda_{j}$ actúa de manera 
+contraria a $\beta_{0}$. Un mayor número de expuestos tiene como consecuencia un 
+menor encogimiento hacia la media inicial, dando mayor importancia a la tasa 
+observada $y_{j}/e_{j}$. Esto refleja que más expuestos implican más información
+proveniente de la muestra, restando importancia a nuestro conocimiento inicial. 
+En cuanto a la varianza posterior, es inversamente proporcional al número de
+expuestos indicando nuevamente que más expuestos implica más conocimiento y por
+tanto menor incertidumbre.
+
+En la siguiente fugura mostraremos el encogimiento hacia la media inicial bajo distintos escenarios de $\beta_{0}$, cada punto representa un hospital y el color indica a que valor de $\beta_{0}$ corresponde. En esta gráfica podemos apreciar el mayor encogimiento para valores mayores de $\beta_{0}$ y el decaimiento en el encogimiento conforme aumenta el número de expuestos.
+
+
+```{r, fig.width=4.5,fig.height=4,fig.align='center'}
+encoge <- ddply(heart, "hospital", transform, enc.1 = 1000 / (1000 + e), 
+  enc.2 = 100 / (100 + e), enc.3 = 10 / (10 + e), enc.4 = 0.01 / (0.01 + e))
+head(encoge)
+encoge.m <- melt(encoge, id = c("e", "y", "hospital"))
+head(encoge.m)
+
+ggplot(encoge.m, aes(x = log(e), y = value, color = variable)) +
+  geom_point(alpha = 0.9) +
+  scale_x_continuous("Número de expuestos (e)", labels = exp, 
+    breaks = c(log(700), log(700*2), log(700*2^2), log(700*2^3), 
+      log(700*2^4))) +
+  scale_color_hue(expression(beta[0]), labels = c("1000", "100", "10", "0.01")) +
+  ylab("encogimiento (A)")
+```
+
+#### Distribución inicial
+
+Establecimos que por facilidad se utilizará una inicial 
+$Gamma(\alpha_{0},\beta_{0})$, sin embargo hace falta asignar valores a los 
+parámetros iniciales. Analizaremos 3 distintas combinaciones de parámetros 
+iniciales y su efecto en las estimaciones posteriores.
+
+Para cada combinación de parámetros la siguiente tabla muestra los deciles de 
+2000 simulaciones de una distribución $Gamma(\alpha_0,\beta_{0})$ y los deciles 
+de las muertes observadas por cada 1000 expuestos considerando todos los 
+hospitales; multiplicamos las simulaciones por 1000 para que indiquen tasas de mortalidad medidas en número de muertes por 1000 expuestos. El propósito de la 
+tabla es describir la forma de la distribución $Gamma$ al cambiar los 
+parámetros, por ejemplo, una $Gamma(0.01,0.01)$ es muy plana y podríamos 
+describirla como poco informativa, mientras que una $Gamma(1,1000)$ tiene una 
+forma más cercana a las tasas de mortalidad observadas. 
+
+decil | $(0.01,0.01)$ | $(0.5,0.01)$ | $(1,1000)$ | Observados  
+------|---------------|--------------|------------|-----------
+min | 0 | 0 | 0 | 0  
+  10 | 0 | 890.3 | 0.1 | 0  
+  20 | 0 | 3134.7 | 0.2 | 0.3  
+  30 | 0 | 7769.0 | 0.3 | 0.5  
+  40 | 0 | 15036.0 | 0.5 | 0.7  
+  50 | 0 | 24293.9 | 0.7 | 0.8  
+  60 | 0 | 37306.0 | 0.9 | 1.1  
+  70 | 0 | 57640.2 | 1.2 | 1.4  
+  80 | 0 | 84255.5 | 1.6 | 1.7  
+  90 | 4.2 | 140721.9 | 2.3 | 2.0  
+  max | 287307.6 | 592073.2 | 7.0 | 3.9  
+
+Ahora realizamos una gráfica para cada pareja de parámetros  
+$(\alpha_0,\beta_{0})$ donde mostramos en negro las tasas observadas, y en color 
+las estimaciones posteriores de las tasas de mortalidad con intervalos del 95\% 
+de probabilidad, ambas medidas en número de muertes por cada 1000 expuestos. 
+Cada punto representa un hospital y el color corresponde al número de muertes 
+observadas, $\{y_{j}\}$. Regresaremos a esta gráfica más adelante pero por lo 
+pronto observemos que tanto las estimaciones como los intervalos de probabilidad 
+son muy diferentes al cambiar los parámetros de la distribución inicial. 
+
+
+```{r, fig.width=5,fig.height=4,fig.align='center'}
+# Procedemos como antes, para cada combinación de alfa y beta simulamos 1000 
+# lambdas de la posterior
+lambdas <- ddply(heart, "hospital", transform, 
+  sims =  rgamma(n = 2000, shape = 0.01 + y, rate = 0.01 + e))
+# Creamos intervalos con las simulaciones
+int.post <- ddply(lambdas, "hospital", summarise, 
+  int.izq = quantile(1000*sims, 0.025), int.der = quantile(1000*sims, 0.975), 
+  media = 1000*(0.01 + y[1])/(0.01 + e[1]))
+int.post$comb <- "alpha = 0.01 beta = 0.01"
+heart.int <- join(heart, int.post, by = "hospital")
+ggplot(heart.int, aes(x = log(e), y = media, color = factor(y))) +
+  geom_point() +
+  geom_segment(aes(x = log(e), xend = log(e), y = int.izq, yend = int.der)) +
+  geom_point(data = heart, aes(x = log(e), y = 1000*y/e), color = "black", 
+    alpha = 0.6)
+
+# alpha = 0.5, beta = 0.01
+lambdas <- ddply(heart, "hospital", transform, 
+  sims =  rgamma(n = 2000, shape = 0.5 + y, rate = 0.01 + e))
+# Creamos intervalos con las simulaciones
+int.post.2 <- ddply(lambdas, "hospital", summarise, 
+  int.izq = quantile(1000*sims, 0.025), int.der = quantile(1000*sims, 0.975), 
+  media = 1000*(0.5 + y[1])/(0.01 + e[1]))
+int.post.2$comb <- "alpha = 0.5 beta = 0.01"
+
+# alpha = 1, beta = 1000
+lambdas <- ddply(heart, "hospital", transform, 
+  sims =  rgamma(n = 2000, shape = 1 + y, rate = 1000 + e))
+# Creamos intervalos con las simulaciones
+int.post.3 <- ddply(lambdas, "hospital", summarise, 
+  int.izq = quantile(1000*sims, 0.025), int.der = quantile(1000*sims, 0.975), 
+  media = 1000*(0.01 + y[1])/(0.01 + e[1]))
+int.post.3$comb <- "alpha = 1 beta = 1000"
+
+int.post <- rbind(int.post, int.post.2, int.post.3)
+heart.int <- join(heart, int.post, by = "hospital")
+head(heart.int)
+```
+
+```{r, fig.width=6,fig.height=6,fig.align='center'}
+ggplot(heart.int, aes(x = log(e), y = media, color = factor(y))) +
+  geom_point() +
+  geom_segment(aes(x = log(e), xend = log(e), y = int.izq, yend = int.der)) +
+  facet_wrap(~ comb, nrow = 3) +
+  geom_point(data = heart, aes(x = log(e), y = 1000*y/e), color = "black", 
+    alpha = 0.6) +
+  scale_x_continuous("Número de expuestos (e)", labels = exp, 
+    breaks = c(log(700), log(700*2), log(700*2^2), log(700*2^3), 
+      log(700*2^4))) + 
+  scale_colour_hue("muertes obs. (y)") + 
+  ylab("Muertes por 1000 expuestos")
+```
+
+Ahora justificaremos la elección de las parejas de parámetros iniciales. La 
+única información con la que contamos para definir una distribución inicial es 
+que la tasa de mortalidad por transplante de corazón debe ser positiva y no muy 
+grande. Debido a que no tenemos más información nuestro primer modelo utiliza 
+una inicial vaga.
+
+#### No informativas
+Asignamos a $\lambda_{j}$ una distribución inicial $Gamma(0.01,0.01)$. La tabla 
+de deciles indica que es una distribución muy plana y si observamos la gráfica 
+de encogimiento notamos que para una inicial con este valor en el parámetro de
+escala $\beta_{0}$, el encogimiento de la media posterior hacia la media inicial
+es muy cercano a cero, dando poca importancia a la media inicial 
+$\alpha_{0}/\beta_{0}=1$.  Como consecuencia, las estimaciones posteriores de
+$\lambda_{j}$ son casi iguales a las tasas observadas $\{y_{j}/e_{j}\}$, y se
+presentan los problemas de tamaño de muestra notados al usar las tasas 
+observadas como estimaciones de 
+las tasas de mortalidad. Además, los intervalos de confianza para los hospitales
+que no experimentaron muertes son poco creíbles pues son mucho más chicos que el
+resto.
+
+La siguiente distribución inicial que consideramos es una $Gamma(0.5,0.01)$. En
+este caso, la elección de los parámetros se basó en la distribución inicial no
+informativa de Jeffreys, consiste en una $Gamma(0.5,0)$. Es una distribución
+impropia por lo que cambiamos el parámetro de escala por $0.01$ para obtener 
+una inicial propia con varianza grande. Los resultados no son muy razonables,
+pues la media inicial es 50, mucho mayor a las tasas observada para todos los
+hospitales, provocando que las estimaciones del modelo sean mayores a las tasas
+observadas en todos los hospitales. Este efecto es contrario al que buscábamos 
+al usar una inicial vaga pues la distribución inicial tiene un impacto muy 
+fuerte en las estimaciones posteriores.
+
+#### Informativa
+Finalmente, consideramos una distribución inicial $Gamma(1,1000)$, ésta inicial
+es informativa. Para obtener sus parámetros igualamos los media y varianza
+teórica de la distribución $Gamma$ con la media y varianza observadas en el
+conjunto de tasas de mortalidad tomando en cuenta todos los hospitales.
+Las estimaciones de las tasas de mortalidad que obtenemos parecen razonables, 
+sin embargo, especificar la distribución inicial con la muestra tiene problemas
+lógicos y prácticos: 1) los datos se están usando 2 veces, primero la 
+información de todos los hospitales se usa para especificar la distribución
+inicial, y después la información de cada hospital se usa para estimar su tasa 
+de mortalidad $\lambda_{j}$, lo que ocasiona que sobreestimemos nuestra 
+precisión. 2) De acuerdo a la lógica bayesiana no tiene sentido estimar 
+$\alpha_{0}$ y $\beta_{0}$, pues son parte de la distribución inicial y no deben
+depender de los datos.
+
+A pesar de los problemas señalados parece ser conveniente intentar mejorar las 
+estimaciones individuales de $\lambda_{j}$ usando la información de todos los
+hospitales. La manera correcta de hacerlo es establecer un modelo de 
+probabilidad para todo el conjunto de parámetros  
+$\{\alpha,\beta,\lambda_{1},...,\lambda_{94}\}$ y después realizar un análisis 
+de la distribución conjunta.
+Se llevará a cabo un análisis completo en la siguiente sección en donde se usará
+un modelo jerárquico.
+
+Podemos concluir que el modelo de unidades independientes no es robusto para 
+nuestros datos pues las estimaciones posteriores de las tasas de mortalidad son 
+muy sensibles a la elección de los parámetros de la distribución inicial. 
+
+## Modelo jerárquico
+
+Un modelo jerárquico implica una estrategia intermedia entre el modelo de
+unidades iguales y el modelo de unidades independientes. Nos permite reflejar un
+escenario en donde la información de cada estudio aporta información acerca del
+parámetro de interés $\lambda_j$ de los demás estudios sin considerarlos
+idénticos, de manera que se estima un parámetro $\lambda_j$ diferente para cada
+hospital.
+
+#### Intercambiabilidad
+En los modelos jerárquicos que estudiaremos suponemos intercambiabilidad; este
+concepto representa un escenario donde no se cuenta con información a priori que
+nos permita distinguir las $\lambda_{j}$ unas de otras (además de los datos 
+$y$).
+
+Un vector de parámetros $\lambda = (\lambda_{1},..., \lambda_{n})$ es 
+intercambiable si la distribución de $\lambda$ no cambia al permutar los 
+componentes del parámetro.
+
+Ahora, para construir un modelo jerárquico intercambiable, comenzamos 
+especificando la distribución de los datos, $y=(y_1,...,y_n)$:
+
+$$
+\begin{eqnarray}
+\nonumber
+y\sim f(y|\lambda),
+\end{eqnarray}
+$$
+
+condicional a $\lambda=(\lambda_{1},..., \lambda_{n})$, las observaciones 
+$\{y_1,...,y_n\}$ son independientes entre si con densidades 
+$f(y_{j}|\lambda_{j})$ independiente de $\lambda_{i}$, para $i\neq j$,
+
+$$
+\begin{eqnarray}
+\nonumber
+	f(y|\lambda) = \prod_{i=1}^n f(y_{i}|\lambda_{i}).
+\end{eqnarray}
+$$
+
+Buscamos que la distribución de $\lambda$ refleje intercambiabilidad, para ello
+suponemos que sus componentes son una muestra aleatoria de una distribución $g$:
+
+$$
+\begin{eqnarray}
+	\nonumber
+	g(\lambda_{1},..., \lambda_{k}|\theta) = \prod_{i=1}^n g(\lambda_{i}|\theta),
+\end{eqnarray}
+$$
+
+bajo éste supuesto las $\lambda_{j}$ son condicionalmente independientes dado el
+valor de un hiperparámetro $\theta$ al que se le asigna una inicial conocida,
+
+$$
+\theta \sim h(\theta)
+$$
+
+### Análisis posterior
+Ya que hemos asignado las distribuciones iniciales, la idea es hacer inferencias
+sobre los parámetros individuales $\lambda=(\lambda_1,...,\lambda_n)$ y el
+parámetro común $\theta$, utilizando las distribuciones posteriores. Entonces, 
+
+$$
+\begin{eqnarray}
+	\nonumber
+	f(\lambda,\theta|y)=g(\lambda|\theta,y)h(\theta|y)
+\end{eqnarray}
+$$
+
+donde
+
+$$
+\begin{eqnarray}
+	\nonumber
+	g(\lambda|\theta,y)\propto f(y|\lambda)g(\lambda|\theta)
+\end{eqnarray}
+$$
+y
+$$
+\begin{eqnarray}
+	\nonumber
+	h(\theta|y)\propto f(y|\theta)h(\theta),
+\end{eqnarray}
+$$
+con
+$$
+\begin{eqnarray}
+	\nonumber
+	f(y|\theta)=\int{f(y|\lambda)g(\lambda|\theta)d\theta}.
+\end{eqnarray}
+$$
+
+Con el cálculo de las distribuciones posteriores el modelo está completo, pues 
+la inferencia se basa en resúmenes de la distribución posterior de los 
+parámetros (media, mediana, varianza, intervalos, etc.).
+
+### Observaciones
+Enumeramos algunas de las ventajas potenciales de usar un modelo jerárquico.
+
+1. Modelo unificado. El problema de elegir entre un modelo de unidades iguales o 
+uno de unidades independientes se resuelve al modelar explícitamente la 
+variabilidad entre las unidades.
+
+2. Unir fuerzas. Debido al supuesto de intercambiabilidad, al estimar el
+parámetro de cada unidad se usa información de las demás unidades, conllevando a
+un encogimiento de la estimación individual hacia la media poblacional, y 
+resulta en una mejor precisión de las estimaciones. La magnitud del encogimiento
+depende de la varianza entre las unidades, y su efecto resulta particularmente
+benéfico cuando hay pocas observaciones dentro de una unidad, en cuyo caso hay
+una gran reducción de la incertidumbre ya que las estimaciones posteriores
+incorporan la información de otras unidades con menor variabilidad. 
+
+3. Incertidumbre en los parámetros. Asignar una distribución a los 
+hiperparámetros, $\theta$, nos permite incorporar nuestra incertidumbre sobre la
+distribución inicial de $\lambda$.
+
+4. Cómputo. La estructura jerárquica facilita los cálculos posteriores, debido a
+que la distribución posterior se factoriza en distribuciones condicionales más
+sencillas que facilitan la implementación de un muestreador de Gibbs.
+
+### Ejemplo: Tasas de mortalidad
+
+Retomando el problema de estimación de tasas de mortalidad por transplante de
+corazón, modelaremos las $\lambda_{j}$ con un modelo jerárquico, suponemos
+intercambiabilidad para reflejar que no contamos con información que nos permita
+distinguir entre los hospitales.
+
+Primero definimos la distribución de los datos,
+
+$$
+\begin{eqnarray}
+	\nonumber
+y_{j} \sim Poisson(e_{j}\lambda_{j}),
+\end{eqnarray}
+$$
+
+donde $y_{j}$ es el número de muertes observadas, $e_{j}$ es el número de 
+expuestos y $\lambda_{j}$ es la tasa de mortalidad para el hospital $j$, con 
+$j=1,...,94$.
+
+Después asignamos una distribución al vector de parámetros 
+$\lambda=(\lambda_{1},...,\lambda_{94})$, para ello suponemos que las tasas de
+mortalidad $\{\lambda_{1},...,\lambda_{94}\}$ son una muestra aleatoria de una 
+distribución $Gamma(\alpha,\alpha/\mu)$ con la forma
+
+$$
+\begin{eqnarray}
+	\nonumber
+	g(\lambda_j|\alpha,\mu)=\frac{(\alpha/\mu)^\alpha\lambda_j^{\alpha-1}exp(-\alpha\lambda_j/\mu)}{\Gamma(\alpha)}, \lambda_j>0.
+\end{eqnarray}
+$$
+
+La media y varianza iniciales de $\lambda_{j}$ están dadas por $\mu$ y 
+$\mu^2/\alpha$, para toda $j$. Las llamaremos la media y varianza poblacionales 
+ya que son comunes para todos los hospitales.
+En la segunda etapa, los hiperparámetros $\mu$ y $\alpha$ se suponen 
+independientes y les asignaremos iniciales vagas. 
+Al parámetro de media,
+
+$$
+\begin{eqnarray}
+	\nonumber
+	h(\mu)\propto\frac{1}{\mu}, \mu>0.
+\end{eqnarray}
+$$
+Al parámetro de precisión $\alpha$ le asignamos una densidad inicial propia pero 
+plana, de la forma,
+$$
+\begin{eqnarray}
+	\nonumber
+	h(\alpha)=\frac{z_{0}}{(\alpha+z_0)^2}, \alpha>0.
+\end{eqnarray}
+$$
+
+El valor $z_0$ es la mediana de $\alpha$, no contamos con información inicial de
+forma que por ahora usaremos $z_0=0.5$.
+
+Debido a la estructura de independencia condicional del modelo jerárquico y a 
+que se eligió una inicial conjugada, el análisis posterior es relativamente 
+sencillo. Utilizamos el Teorema de Bayes para calcular la distribución posterior
+de $\lambda_{j}$ condicional a los valores de los hiperparámetros $\mu$ y
+$\alpha$, 
+
+$$
+\begin{eqnarray}
+	\nonumber
+	g(\lambda_{j}|y_{j},\alpha,\mu) &\propto& g(\lambda_{j}|\alpha,\mu)f(y_{j}|\lambda_{j})\\
+	\nonumber
+	&=& \frac{(\alpha/\mu)^{\alpha} \lambda_{j}^{\alpha-1}exp(-\lambda_{j} \alpha/\mu)}{\Gamma(\alpha)}\frac{exp(-e_{j}\lambda_{j})(e_{j}\lambda_{j})^{y_{j}}}{y_{j}!}\\
+	\nonumber
+	&\propto& \lambda_{j}^{y_{j}+\alpha-1}exp(-\lambda_{j}(e_{j}+\alpha/\mu))
+\end{eqnarray}
+$$
+
+obtenemos así que las tasas $\{\lambda_{1},..., \lambda_{94}\}$ tienen 
+distribuciones posteriores independientes 
+$Gamma(y_{j}+\alpha, e_{j}+\alpha/\mu)$, con media:
+
+$$
+\begin{eqnarray}
+	E(\lambda_{j}|y,\alpha,\mu) &=& \frac{y_{j}+\alpha}{e_{j}+\alpha/\mu}\\
+	\label{eqn:pond}
+	&=& (1-A_{j})\frac{y_{j}}{e_{j}}+A_{j}\mu,
+\end{eqnarray}
+$$
+donde
+$$
+\begin{eqnarray}
+	\label{eqn:factor}
+	A_{j}=\frac{\alpha}{\alpha+e_{j}\mu},
+\end{eqnarray}
+$$
+
+Denominamos al factor $A_{j}$ como el encogimiento hacia la media poblacional
+$\mu$, más adelante derivamos la distribución posterior de $\mu$, pero por ahora
+la enunciamos con el propósito de mostrar que su distribución incorpora 
+información de todos los hospitales, 
+
+$$
+\begin{eqnarray}
+	\nonumber
+	f(\mu|y)=K \int \prod_{i=1}^{94} \left[ \frac {(\alpha/\mu)^\alpha\Gamma(y_{i}+\alpha)} {(e_{i}+\alpha/\mu)^{y_{i}+\alpha}} \right ]\frac{z_{0}}{(\alpha+z_0)^2} \frac{1}{\mu} d\alpha
+\end{eqnarray}
+$$
+donde $K$ es una constante.
+
+Al escribir la media posterior de $\lambda_{j}$ como un promedio ponderado, podemos ver el efecto de unir fuerzas mencionado en las observaciones del 
+modelo jerárquico: hay un encogimiento hacia $\mu$ que depende del número de
+expuestos, $e_{j}$, para los hospitales con menor número de expuestos el
+encogimiento hacia $\mu$ es mayor, mientras que para aquellos con mayor número 
+de expuestos, es más importante la tasa observada, $y_{j}/e_{j}$. De esta 
+manera, mayor encogimiento corresponde a las observaciones con mayor 
+incertidumbre.
+
+Notemos también que la factorización de la media posterior es similar a la que
+obteníamos en el modelo de medias independientes. La diferencia radica en que
+ahora es un sólo modelo (opuesto a 94), y los parámetros de la distribución
+inicial de $\lambda_{j}$ forman parte del modelo de probabilidad pues les
+asignamos una distribución inicial.
+
+### Distribuciones posteriores
+
+Sea $\lambda=(\lambda_{1},...,\lambda_{94})$ y $y=(y_{1},...,y_{94})$, 
+calculamos la densidad posterior conjunta de los parámetros,
+
+$$
+\begin{align}
+	\nonumber
+	f(\lambda,\alpha,\mu|y) &\propto f(y|\lambda,\alpha,\mu)f(\lambda,\alpha,\mu)\\
+\nonumber
+	&= f(y|\lambda) f(\lambda|\alpha,\mu) p(\alpha,\mu)\\
+\nonumber
+	&= \prod_{i=1}^{94}f(y_{i}|\lambda_{i}) \prod_{i=1}^{94} f(\lambda_{i}|\alpha,\mu) f(\alpha)f(\mu)\\
+\nonumber
+	&\propto \prod_{i=1}^{94} \frac {exp(-e_{i}\lambda_{i})(e_{i}\lambda_{i})^{y_{i}}} {y_{i}!} \prod_{i=1}^{94} \frac {(\alpha/\mu)^{\alpha}\lambda_{i}^{\alpha-1}exp(-\lambda_{i}(\alpha/\mu))} {\Gamma(\alpha)} \frac{z_{0}}{(\alpha+z_0)^2} \frac{1}{\mu}\\
+	\nonumber
+	&\propto \prod_{i=1}^{94}\frac {(e_{i}+\alpha/\mu)^{y_{i}+\alpha}\lambda_{i}^{y_{i}+\alpha-1}exp(-\lambda_{i}(e_{i}+\alpha/\mu))} {\Gamma(y_{i}+\alpha)} \prod_{i=1}^{94}\frac {(\alpha/\mu)^\alpha\Gamma(y_{i}+\alpha)} {(e_{i}+\alpha/\mu)^{y_{i}+\alpha}}\frac{z_{0}}{(\alpha+z_0)^2} \frac{1}{\mu},
+\end{align}
+$$
+
+de aquí podemos integrar las tasas de mortalidad, $\lambda_{j}$, para obtener la
+distribución posterior de los hiperparámetros $f(\alpha,\mu|y)$,
+
+$$
+{\normalsize
+\begin{align}
+	\nonumber
+	f(\alpha,\mu|y) \propto \int_{\lambda_{1}} ...\lambda_{y_{94}}
+	\prod_{i=1}^{94}(\frac {(e_{i}+\alpha/\mu)^{y_{i}+\alpha}\lambda_{i}^{y_{i}+\alpha-1}exp(-\lambda_{i}(e_{i}+\alpha/\mu))} {\Gamma(y_{i}+\alpha)}) \prod_{i=1}^{94}k_i  d\lambda_{1}...d\lambda_{94},\\
+	\nonumber
+\end{align}
+}
+$$
+
+donde,
+
+$$
+\normalsize{
+\begin{align}
+	\nonumber
+	k_i = \frac {(\alpha/\mu)^\alpha\Gamma(y_{i}+\alpha)} {(e_{i}+\alpha/\mu)^{y_{i}+\alpha}}\frac{z_{0}}{(\alpha+z_0)^2} \frac{1}{\mu}
+\end{align}}
+$$
+
+observemos que las $\{k_j\}$ no dependen de $y$ por lo que son constantes en la
+integral, además para cada $i$ de la primera multiplicación tenemos una 
+distribución $Gamma(y_{i}+\alpha, e_{i}+\alpha/\mu)$ por lo que integran 1.
+
+Resultando,
+
+$$
+{\normalsize
+\begin{align}
+	\nonumber
+	f(\alpha,\mu|y)=K\prod_{i=1}^{94} \frac {(\alpha/\mu)^\alpha\Gamma(y_{i}+\alpha)} {(e_{i}+\alpha/\mu)^{y_{i}+\alpha}}\frac{z_{0}}{(\alpha+z_0)^2} \frac{1}{\mu}
+\end{align}}
+$$
+
+donde $K$ es la constante de proporcionalidad.
+
+Simulemos de las distribuciones posteriores, para ello procederemos como sigue:
+
+1. Simulamos $(\mu, \alpha)$ de la distribución marginal posterior.
+
+2. Simulamos $\lambda_1,...,\lambda_94$ de la distribución posterior condicional
+a los valores simulados $(\mu, \alpha)$.
+
+Para el primer paso, notamos que ambos parámetros son positivos por lo que es
+conveniente transformarlos: $\theta_1 = log(\alpha$, $\theta_2 = log(\mu)$.
+
+Definimos ahora la distribución posterior en términos de los parámetros 
+transformados
+
+```{r}
+poissgamexch <- function(theta, datapar){ # theta = c(theta_1, theta_2)
+  y <- datapar$data[, 2]
+  e <- datapar$data[, 1]
+  z0 <- datapar$z0
+  alpha <- exp(theta[1])
+  mu <- exp(theta[2])
+  beta <- alpha/mu
+  logf <- function(y, e, alpha, beta){
+    lgamma(alpha + y) - (y + alpha) * log(e + beta) + alpha*log(beta) - 
+      lgamma(alpha)
+  }
+  val = sum(logf(y, e, alpha, beta))
+  val = val + log(alpha) - 2 * log(alpha + z0)
+  return(val)
+}
+# Simulamos theta_1, theta_2 usando el algoritmo de Metropolis dentro de Gibbs
+# en la función gibbs, datapar contiene la base de datos y el valor del 
+# hiperparámetro z0 
+datapar = list(data = hearttransplants, z0 = 0.53)
+# adicionalmente debemos dar valores para el algoritmo M-H, la función 
+# implementa un algoritmo M-H de caminata aleatoria
+# donde la distribución propuesta tiene la forma  theta* = theta^t-1 + scale*Z
+# y Z es N(0, I), en este caso c(1, 0.15) es el vector de escala
+fitgibbs <- gibbs(poissgamexch, start = c(4, -7), m = 1000, scale = c(1, 0.15),
+  datapar)
+fitgibbs$accept
+# simulaciones de alpha
+alpha <- exp(fitgibbs$par[, 1])
+# simulaciones de mu
+mu = exp(fitgibbs$par[, 2])
+```
+
+Podemos usar las simulaciones de $\alpha$ y $\mu$ para ver el encogimiento de 
+las estimaciones de cada hosiptal hacia la media poblacional. Notamos un mayor
+encogimiento para los hospitales con menor número de expuestos.
+
+```{r, fig.align='center'}
+encoge <- ddply(heart, "hospital", transform, A = mean(alpha/(alpha + e * mu)))
+ggplot(encoge, aes(x = log(e), y = A)) +
+  geom_point(alpha = 0.6, size = 1.6) +
+  scale_x_continuous("Número de expuestos (e)", label = exp, 
+    breaks = c(log(700), log(700*2), log(700*2^2), log(700*2^3), 
+      log(700*2^4))) +
+    ylab("encogimiento (A)") + ylim(0, 1)
+```
+
+Ahora simualmos observaciones de la distribución posterior de lambda:
+
+```{r}
+# simulamos lambda de la condicional p(lambda) = p(labda|alpha, mu)p(alpha,mu)
+lambdas.h <- ddply(heart, "hospital", transform, 
+  sims = rgamma(1000, y + alpha, e + alpha/mu))
+```
+
+Ya que tenemos las distribuciones posteriores podemos hacer inferencia acerca de
+la tasa de mortalidad $\lambda$. A continuación graficamos los intervalos
+posteriores del 95\% de probabilidad para las tasas $\lambda_{j}$, el color
+representa el número de muertes observadas $y_{j}$, en gris se graficaron las
+tasas observadas, la gráfica se dividió en 3 páneles de acuerdo al número de
+muertes observadas en los hospitales.
+
+
+```{r, fig.align='center'}
+int.post.h <- ddply(lambdas.h, "hospital", summarise, 
+  int.izq = quantile(1000 * sims, 0.025), int.der = quantile(1000 * sims, 0.975), 
+  media = 1000 * mean(sims))
+int.post.h2 <- join(int.post.h, heart, by = "hospital")
+int.post.h2$cat <- cut(int.post.h2$y, c(0, 2, 4, 19), right = FALSE)
+
+head(int.post.h2)
+ggplot(int.post.h2, aes(x = log(e), y = media, color = factor(y))) +
+  geom_point() +
+  geom_segment(aes(x = log(e), xend = log(e), y = int.izq, yend = int.der)) +
+  geom_point(aes(x = log(e), y = 1000*y/e), color = "black", 
+    alpha = 0.6) +
+  scale_x_continuous("Número de expuestos (e)", labels = exp, 
+    breaks = c(log(700), log(700*2), log(700*2^2), log(700*2^3), 
+      log(700*2^4))) + 
+  scale_colour_hue("muertes obs. (y)") + 
+  ylab("Muertes por 1000 expuestos") +
+  facet_wrap(~ cat, nrow = 3)
+```
+
+
+Analizamos la distribución predictiva posterior para la misma muestra de 10 
+hospitales que se utilizó en el modelo de unidades iguales.
+
+```{r, fig.width=6,fig.height=4.6,fig.align='center'}
+lambdas.h$sims.y <- rpois(94000, lambdas.h$sims * lambdas.h$e)
+hists.post <- subset(lambdas.h, hospital %in% hosps)
+
+ggplot(hists.post, aes(x = sims.y)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 1, color = "darkgray", 
+    fill = "darkgray") +
+  facet_wrap(~ hospital, nrow = 2) +
+  geom_segment(data = heart.2, aes(x = y, xend = y, y = 0, yend = 0.5), 
+    color = "red") + 
+  geom_text(data = heart.2, aes(x = 10, y = 0.4, label = paste("e =", e)), 
+    size = 2.7)
+```
+
+Observemos que únicamente en uno de los histogramas el número de muertes 
+observadas se encuentra cerca de la cola de la distribución, lo que indica 
+concordancia de las observaciones con el modelo ajustado.
+
+Finalmente, revisamos la consistencia de los valores observados $y_{j}$ con la 
+distribución predictiva posterior para todos los hospitales, para ello 
+calculamos la probabilidad de que una observación futura $y_{j}^*$ sea al menos 
+tan extrema como $y_{j}$ para todas las observaciones:
+
+$$
+\begin{eqnarray}
+	\nonumber
+	P(extremos) = min\{P(y_{j}^*\leq y_{j}),P(y_{j}^*\geq y_{j})\}
+\end{eqnarray}
+$$
+
+A continuación graficamos las probabilidades de extremos (calculadas con
+simulación). Con el modelo jerárquico solamente el 6\% de las probabilidades son
+menores al 0.15, una disminución considerable al 28\% obtenido con el modelo de
+unidades iguales. 
+
+```{r, fig.align='center', fig.width=4, fig.height=4}
+p.pred.h <- ddply(lambdas.h, "hospital", summarise, p = min(sum(sims.y <= y) / 1000, 
+  sum(sims.y >= y) / 1000))
+head(p.pred.h)
+p.pred.h2 <- join(heart, p.pred.h, by = "hospital")
+ggplot(p.pred.h2, aes(x = log(e), y = p)) + 
+  geom_point() +
+  scale_x_continuous("Número de expuestos (e)", labels = exp, 
+    breaks = c(log(700), log(700*2), log(700*2^2), log(700*2^3), 
+      log(700*2^4))) + 
+  ylab("P(extremos)") +
+  geom_hline(yintercept = .15, colour = "red", size = 0.4) +
+  ylim(0, .7) 
+```
+
+Comparemos ahora las probabilidades de al menos tan extremo usando el modelo
+jerárquico contra las probabilidades de al menos tan extremo usando el modelo de
+unidades iguales, los puntos se colorearon de acuerdo al número de expuestos de
+cada hospital. Observemos que las probabilidades bajo el modelo jerárquico son
+mayores en la mayoría de los casos.
+
+```{r, fig.align='center', fig.width=5, fig.height=4}
+p.pred.2$pred.h <- p.pred.h$p
+p.pred.2$e.factor <- cut(heart$e, c(500, 1500, 2500, 4000, 12500), 
+  labels = c("(500,1500]", "(1500,2500]", "(2500,4000]", "(4000,1200]"))
+ggplot(p.pred.2, aes(x = p, y = pred.h, colour = e.factor)) +
+  geom_abline(colour = "red", size = 0.4, alpha = 0.8) +
+  geom_point(size = 3) +
+  coord_equal() + 
+  xlab("P(extremos), unidades iguales") +
+  ylab("P(extremos), jerárquico") +
+  ylim(0, 0.7) +
+  xlim(0, 0.7) +
+  coord_equal() +
+  scale_colour_brewer("No. expuestos (e)", palette = "Blues")
+```
+
+### JAGS
+
+Ahora veremos como hacer la estimación usando JAGS. Primero hacemos un par de 
+cambios en la definición del modelo, esto es porque la distribución inicial de 
+$\mu$ no es propia (i.e. no integra uno) y JAGS no permite el uso de iniciales 
+impropias. Usaremos iniciales Gamma para $\alpha$ y $\mu$ eligiendo parámetros 
+de manera que sean iniciales vagas.
+$$\mu, \alpha \sim Gamma(0.01, 0.01).$$
+Veamos como se escriben el modelo en JAGS.
+
+```{r}
+modelo_heart.txt <- 
+'
+model{
+  for(i in 1 : N) {
+    y[i] ~ dpois(lambda2[i]) 
+    lambda2[i] <- e[i] * lambda[i]
+    lambda[i] ~ dgamma(alpha, beta)
+  }
+  alpha ~ dgamma(0.01, 0.01)
+  mu ~ dgamma(0.01, 0.01)
+  beta <- alpha/mu
+}
+'
+cat(modelo_heart.txt, file = 'modelo_heart.txt')
+```
+
+En el modelo definimos una distribución de probabilidad para cada hospital, es 
+por ello que usamos el ciclo _for_, dentro del ciclo modelamos también las tasas 
+de mortalidad como observaciones de una distribución $Gamma(\alpha, \alpha/\mu)$, 
+y finalmente fuera del ciclo especificamos la distribución de los 
+hiperparámetros.
+
+```{r, message=FALSE}
+library(R2jags)
+
+head(heart)
+# creamos una lista con los datos: esta incluye índices, y variables
+N <- nrow(heart)
+e <- heart$e
+y <- heart$y
+jags.data <- list("e", "y", "N")
+
+# ahora definimss valores iniciales para los parámetros, en este caso estamos 
+# generando valores iniciales aleatorios de manera de que distintas cadenas 
+# tengan distitos valoes iniciales
+# si no se especifican la función jags generará valores iniciales
+jags.inits <- function(){
+  list("alpha" = runif(1),
+    "mu" = runif(1), 
+    "lambda" = runif(N))
+}
+# debemos especificar también el nombre de los parámetros que vamos a guardar
+jags.parameters <-  c("alpha","mu","lambda")
+# Y usamos la función jags (más adelante discutiremos los otros parámetros de 
+# la función)
+jags.fit <- jags(data = jags.data, inits = jags.inits, 
+  model.file = "modelo_heart.txt", parameters.to.save = jags.parameters,
+  n.chains = 2, n.iter = 5000) 
+jags.fit
+class(jags.fit)
+names(jags.fit)
+names(jags.fit$BUGSoutput)
+
+# las simulaciones de la distribución posterior se pueden extraer del objeto
+# fit$BUGSoutput como arreglo: sims.array, lista: sims.list o matriz: sims.matrix
+# aquí elegimos el formato de lista
+names(jags.fit$BUGSoutput$sims.list)
+# y extraemos las lambdas
+class(jags.fit$BUGSoutput$sims.list$lambda)
+# vienen en formato de matriz donde los renglones son las iteraciones y cada
+# columna corresponde a un hospital
+dim(jags.fit$BUGSoutput$sims.list$lambda)
+# usamos la función apply para obtener intervalos de probabilidad del 95%
+ints <- apply(jags.fit$BUGSoutput$sims.list$lambda, 2, quantile, 
+  probs = c(0.025, 0.975))
+# los guardamos en un data.frame
+post.2 <- data.frame(id = 1:94, t(ints))
+colnames(post.2) <- c("hospital", "izq", "der")
+post.2$media <- apply(jags.fit$BUGSoutput$sims.list$lambda, 2, mean)
+post.2$metodo <- "JAGS"
+
+post.1 <- ddply(lambdas.h, "hospital", summarise, 
+  izq = quantile(sims, 0.025), der = quantile(sims, 0.975), 
+  media = mean(sims))
+post.1$metodo <- "R"
+compara <- rbind(post.1, post.2)
+heart$hospital <- 1:94
+compara.2 <- join(compara, heart, by = "hospital")
+
+ggplot(compara.2, aes(x = log(e), y = media, color = metodo)) +
+  geom_point() +
+  geom_segment(aes(x = log(e), xend = log(e), y = izq, yend = der)) +
+  geom_point(aes(x = log(e), y = y/e), color = "black", 
+    alpha = 0.6) +
+  scale_x_continuous("Número de expuestos (e)", labels = exp, 
+    breaks = c(log(700), log(700*2), log(700*2^2), log(700*2^3), 
+      log(700*2^4))) 
+
+```
+
+Retomemos a los argumentos de la función jags, hace falta definir el número de 
+cadenas y el número de iteraciones. Recordemos que el objetivo de usar varias 
+cadenas es tener una herramienta para determinar la convergencia del algoritmo. 
+Nos gustaría correr el algoritmo MCMC hasta que las simulaciones de cadenas con 
+valores iniciales distintos converjan a una distribución común. Especificar 
+valores iniciales aleatorios (como hicimos arriba) asegura que las cadenas esten 
+utilizando distintos valores iniciales.
+
+Adicionalmente necesitamos correr las simulaciones el tiempo suficiente para 
+_olvidar_ los valores iniciales, la función jags esta programada para correr 
+_n.iter_ iteraciones y descartar la primera mitad en cada cadena.
+Veamos la evolución de las cadenas en 500 iteraciones.
+
+```{r}
+# Usaremos como ejemplo el parámetro alpha
+n.i <- 700
+jags.fit.alpha <- jags(data = jags.data, inits = jags.inits, 
+  model.file = "modelo_heart.txt", parameters.to.save = "alpha",
+  n.chains = 3, n.iter = n.i, n.burnin = 0) 
+traceplot(jags.fit.alpha)
+```
+
+Gelman recomienda los siguientes pasos para decidir el número de iteraciones:
+
+1. Cuando definimos un modelo por primera vez establecemos un valor bajo para 
+_n.iter_ por ejemplo 10 ó 50. La razón es que la mayor parte de las veces los 
+modelos no funcionan a la primera por lo que sería pérdida de tiempo dejarlo 
+correr mucho tiempo antes de descubrir el problema.
+
+2. Si las simulaciones no han alcanzado convergencia aumentamos las iteraciones 
+a 500 ó 1000 de tal forma que las corridas tarden segundos o unos cuantos 
+minutos.
+
+3. Si JAGS tarda más que unos cuantos minutos (para problemas del tamaño que 
+veremos en la clase) y aún así no alcanza convergencia entonces _juega_ un poco 
+con el modelo (por ejemplo intenta transformaciones lineales), Gelman sugiere 
+más técnicas para acelerar la convergencia en el capitulo 19 del libro 
+**Data Analysis UsingRegression and Multilevel/Hierarchical models**.
+
+4. Otra técnica conveniente cuando se trabaja con bases de datos grandes 
+(sobretodo para la parte exploratoria) es trabajar con un subconjunto de los 
+datos, quizá la mitad o una quinta parte.
+
+Recordemos que para determinar la convergencia de la cadena además de realizar 
+gráficas podemos usar la medida $\hat{R}$:
+
+```{r}
+head(jags.fit$BUGSoutput$summary)
+```
+
+Si $\hat{R}$ es mucho mayor a 1 esto indica que las cadenas no se han mezclado 
+bien.
+
+```{r, fig.height=3, fig.width=5}
+n.i <- 100
+jags.fit.alpha <- jags(data = jags.data, inits = jags.inits, 
+  model.file = "modelo_heart.txt", parameters.to.save = "alpha",
+  n.chains = 3, n.iter = n.i) 
+head(jags.fit.alpha$BUGSoutput$summary)
+traceplot(jags.fit.alpha)
+n.i <- 1000
+jags.fit.alpha <- jags(data = jags.data, inits = jags.inits, 
+  model.file = "modelo_heart.txt", parameters.to.save = "alpha",
+  n.chains = 3, n.iter = n.i) 
+head(jags.fit.alpha$BUGSoutput$summary)
+traceplot(jags.fit.alpha)
+```
+
+### Ejercicio
+
+Implementaremos varios modelos en JAGS, la base de datos que usaremos contiene 
+información de mediciones de radón (activity) y del suelo en el que se hicieron 
+las mediciones (floor = $0$ casas con sótano, floor = $1$ casas sin sótano), las 
+mediciones corresponden a $919$ hogares muestreados de $85$ condados de 
+Minnesota. El objetivo es construir un modelo de regresión en el que la medición 
+de radón es la variable independiente y el tipo de suelo es la covariable.
+
+1. Iniciaremos con un modelo de regresión de unidades iguales, este modelo 
+ignora la variación en los niveles de radón entre los condados.
+
+$$y_i \sim N(\alpha + \beta x_i, \sigma_y^2) $$
+
+2. Después pasamos a un modelo de unidades independientes, en este simplemente 
+incluímos indicadoras a nivel condado.
+
+$$y_i \sim N(\alpha_{j[i]} + \beta x_i, \sigma_y^2) $$
+
+3. Añadimos una estructura jerárquica al modelo:
+$$y_i \sim N(\alpha_{j[i]} + \beta x_i, \sigma_y^2) $$
+$$\alpha_j \sim N(\mu_{\alpha}, \sigma_{\alpha}^2)$$
+
+4. Incorporamos una covariable $u_j$ a nivel grupo, en este caso elegiremos una 
+medición de uranio a nivel condado (Uppm).
+
+$$y_i \sim N(\alpha_{j[i]} + \beta x_i, \sigma_y^2) $$
+$$\alpha_j \sim N(\gamma_0 + \gamma_{1}u_j, \sigma_{\alpha}^2)$$
+
+5. Utiliza el modelo anterior para predecir el valor de radón para una nueva 
+casa sin sótano (floor = 1) en el condado 26.
+
+6. Utiliza el modelo anterior para predecir el valor de radón para una nueva 
+casa sin sótano (floor = 1) en un condado nuevo con nivel de uranio $2$.
+
+#### Observaciones
+
+Iniciamos preparando los datos para el análisis, trabajaremos en escala 
+logarítmica, hay algunos casos con medición cero, para éstos hacemos una pequeña
+correción redondeándolos a $0.1$.
+
+Ahora, por el momento hemos modelado los datos y los parámetros $\alpha_j$ a 
+nivel grupo (en el caso del modelo jerárquico), pero nos falta asignar 
+distribuciones a los hiperparámetros 
+($\mu, \beta, \sigma_y^2, \sigma_{\alpha}^2$). Para la elección de 
+distribuciones iniciales (de los hiperparámetros) podemos usar iniciales no 
+informativas. Recordemos que una distribución inicial no informativa tiene el 
+objetivo de permitir que realicemos inferencia bayesiana para parámetros de los 
+cuales no sabemos mucho (sin considerar la información en los datos). 
+Consideremos  las siguientes distribuciones iniciales:
+$$\beta \sim N(0, 0.0001)$$
+$$\mu_{\alpha} \sim  N(0, 0.0001)$$
+donde la normal esta parametrizada en términos de varianzas inversas (conocidas
+como precisión $\tau = 1/\sigma^2$). Con los parámetros propuestos estaríamos 
+diciendo que esperamos que los coeficientes se ubiquen en el rango (-100,100) y 
+si los estimadores estan en este rango la distribución inicial provee muy poca 
+información.
+Para los parámetros restantes podemos definirla la inicial de la siguiente 
+manera:
+$$\tau_y = 1/\sigma^2$$
+donde 
+$$\sigma^2 \sim Unif(0, 100)$$
+y 
+$$\tau_{\alpha} = 1/\sigma_{\alpha}^2$$
+donde 
+$$\sigma_{\alpha}^2 \sim Unif(0, 100).$$
+
+Entonces, para que una distribución inicial sea noinformariva, su rango de 
+incertidumbre debe ser más amplio que el rando de valores razonables que pueden 
+tomar los parámetros.
+
+### Referencias
+> [John K. Kruschke](https://sites.google.com/site/doingbayesiandataanalysis), 
+Doing Bayesian Data Analysis.
+
+> [Andrew Gelman](http://www.stat.columbia.edu/~gelman/arm/), Data Analysis Using Regression and Multilevel/Hierarchical Models
+
+> [Jim Albert](http://bayes.bgsu.edu/bcwr/), Bayesian Computation With R.
+
