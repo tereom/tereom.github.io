@@ -74,6 +74,7 @@ convierte en uno de maximizar algún score que califica los distintos modelos. E
 decir: definimos primero $score({\mathcal G},p)$, donde ${\mathcal G}$ es una 
 gráfica y $p$ una distribución de probabilidad conjunta que se factoriza sobre 
 ${\mathcal G}$, e intentamos resolver (o aproximar una solución) al problema
+
 $$\max_{{\mathcal G}, p} score({\mathcal G},p)$$
 </div>
 
