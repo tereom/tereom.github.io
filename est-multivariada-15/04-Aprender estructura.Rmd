@@ -29,8 +29,9 @@ output:
 library(bnlearn)
 library(gRbase)
 library(igraph)
-source("../../computo/codigo/tema_ggplot.R")
+library(ggplot2)
 options(digits = 2)
+theme_set(theme_minimal())
 ```
 
 Hasta ahora hemos considerado ajuste de modelos locales para estructuras 
@@ -70,9 +71,9 @@ en explicar las relaciones de independencia y dependencia.
 * **Aprendizaje basado en scores**: estos algoritmos consideran las posibles 
 estructuras gráficas como distintos modelos, de tal manera que el problema se 
 convierte en uno de maximizar algún score que califica los distintos modelos. Es 
-decir: definimos primero $score({\mathcal G},p)$, donde $\mathcal G$ es una 
+decir: definimos primero $score({\mathcal G},p)$, donde ${\mathcal G}$ es una 
 gráfica y $p$ una distribución de probabilidad conjunta que se factoriza sobre 
-$G$, e intentamos resolver (o aproximar una solución) al problema
+${\mathcal G}$, e intentamos resolver (o aproximar una solución) al problema
 $$\max_{{\mathcal G}, p} score({\mathcal G},p)$$
 </div>
 
@@ -125,8 +126,8 @@ En este ejemplo $N=4,526$ y $k=3$. Cada $x^{(i)}$ es un renglón de la tabla.
 
 <br/>
 
-Sea $\mathcal G$ una gráfica sobre los nodos $X_1,\ldots, X_k$, y $p$ una 
-conjunta que se factoriza sobre $\mathcal G$. La verosimilitud de la red 
+Sea ${\mathcal G}$ una gráfica sobre los nodos $X_1,\ldots, X_k$, y $p$ una 
+conjunta que se factoriza sobre ${\mathcal G}$. La verosimilitud de la red 
 $({\mathcal G}, p)$ es la probabilidad de observar los datos de entrenamiento 
 $\mathcal L$ dado el modelo $({\mathcal G}, p),$ y la denotamos por
 $$L({\mathcal G}, p; {\mathcal L}).$$
@@ -930,7 +931,7 @@ flechas por otras consideraciones, como explicaciones causales, temporales,
 o de interpretación. Los modelos son equivalentes, pero tienen
 una parametrización destinta.
 
-![](../../computo/imagenes/manicule2.jpg)  Mostrar que cambiar el sentido de una 
+![](../../est-comp-14/imagenes/manicule2.jpg)  Mostrar que cambiar el sentido de una 
 flecha que colisiona en $d$ (que es un colisionador no protegido) **no** da
 scores equivalentes.
 
