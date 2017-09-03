@@ -1,0 +1,346 @@
+---
+title: "Introducción al análisis exploratorio"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(comment=NA, fig.align="center")
+options(digits = 4)
+```
+
+El estándar científico para contestar preguntas o tomar decisiones es uno que
+se basa en el análisis de datos: para contestar preguntas o tomar decisiones es
+necesario, en primer lugar, reunir todos los datos disponibles que puedan
+contener o sugerir alguna guía para entender mejor la pregunta o la decisión a 
+la que nos enfrentamos. Esta recopilación de datos -que pueden ser cualitativos,
+cuantitativos, o una mezcla de los dos debe entonces ser analizada para extraer
+información relevante para nuestro problema.
+
+Aquí nos interesan las técnicas cuantitativas: cómo recolectar, organizar,
+entender, interpretar y extraer información de colecciones de datos 
+predominantemente numéricos. Todas estas tareas son partes del análisis de 
+datos, cuyo proceso podría resumirse con el siguiente diagrama:
+
+![](imagenes/analisis.png)
+
+En este curso nos concentramos en los pasos transformar y visualizar, que son 
+la parte central del análisis exploratorio de datos, sin embargo, también 
+tocaremos el aspecto de modelar, que también juega un papel importante en el 
+análisis exploratorio.
+
+También es importante la forma en que nos movemos dentro de estos
+procesos en el análisis de datos. En palabras de Cleveland, _las herramientas 
+son importantes_. En el proceso de análisis buscaremos seguir los 
+siguientes principios.
+
+1. **Reproducibilidad**. Debe ser posible reproducir el análisis en todos sus 
+pasos, en cualquier momento.
+
+2. **Claridad**. Los pasos del análisis deben estar documentados apropiadamente, 
+de manera que las decisiones importantes puedan ser entendidas y explicadas 
+claramente.
+
+Estos dos principios generalmente implican que debemos trabajar escribiendo
+código, más que usando interfaces gráficas de *point and click*. Esto permite 
+crear programas reproducibles que son fácilmente documentados, y tiene otras
+consecuencias positivas como la facilidad de comunicación (compartir código), la
+posibilidad de trabajar con versiones que documenten la historia del desarrollo,
+respaldos fáciles del trabajo, e incluso el uso de lenguajes de programación más
+flexibles que integren nuestro trabajo en procesos de producción de reportes
+o monitoreo.
+
+### Ejemplo: rendimiento de campos de cebada
+Comenzaremos con un ejemplo tomado de Cleveland (1994), en esta sección 
+buscamos mostrar: primero una parte del proceso de análisis y descubrimiento
+característico del análisis exploratorio. El segundo objetivo del ejemplo es 
+ilustrar los principios de *reproducibilidad* y *claridad* descritos arriba.
+
+Consideramos los datos *barley* (paquete *lattice* de R), que son los 
+rendimientos en [bushels](https://en.wikipedia.org/wiki/Bushel#/media/File:LA2-NSRW-5-0199.jpg)
+por acre para 10 variedades de cebada, cada una plantada en 5 sitios distintos
+de Minnesota edurante 1931 y 1932. 
+
+Comenzamos formulando una pregunta que nos interese contestar con estos 
+datos: *¿Como varía el rendimiento a lo largo de sitios y variedades de cebada 
+de año a año?*.
+
+Leemos los datos. Supongamos que los datos están contenidos en dos tablas, 
+una para 1931 y otra para 1932.
+
+```{r, message=FALSE, comment=NA, size="tiny"}
+# Si deseas seguir estos ejercicios en R necesitarás comenzar instalando 
+# algunos paquetes, para instalar los paquetes de esta clase corre la siguiente
+# instrucción (esto se hace únicamente una vez)
+# install.packages(c("ggplot2", "tidyr", "dplyr", "readr"))
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+
+barley_1931 <- read_csv("data/barley_1931.csv")
+barley_1932 <- read_csv("data/barley_1932.csv")
+```
+
+La tabla de 1931 se ve como sigue:
+
+```{r}
+barley_1931
+```
+
+La tabla de 1932 es análoga.
+
+Limpiamos los datos. Necesitamos unir las dos tablas para trabajar más 
+facilmente. También nos conviene cambiar la estructura de estas tablas y 
+agregar una etiqueta de año.
+
+```{r}
+barley_1931_long <- gather(barley_1931, site, yield, -variety)
+barley_1931_long$year <- 1931
+barley_1932_long <- gather(barley_1932, site, yield, -variety)
+barley_1932_long$year <- 1932
+```
+
+La restructura de los datos resulta en una tabla donde las mediciones están en 
+una sola columna y agregamos un identificador de sitio:
+
+```{r}
+barley_1931_long
+```
+
+Ahora pegamos las dos bases.
+
+```{r}
+barley_tot <- rbind(barley_1931_long, barley_1932_long)
+barley_tot
+```
+
+Comenzamos con una solución sencilla. Graficamos para comparar los 
+rendimientos.
+
+```{r}
+ggplot(barley_tot, aes(x = reorder(variety, yield), y = yield, 
+  color = factor(year))) +
+  facet_wrap(~site) + 
+  geom_point() + 
+  coord_flip() +
+  ylab("variety")
+```
+
+Notamos que en general 1931 tuvo rendimientos más altos que 1932 y que los 
+sitios varían en cuanto a su rendimiento (por ejemplo Duluth tiene rendimientos
+menores a Waseca). 
+
+Exploramos otras opciones. Primero consideramos la diferencia de 1931 a 1932, 
+que se puede analizar más fácilmente considerando las diferencias dentro de 
+cada sitio y para cada variedad.
+
+```{r, fig.height=3.4, fig.width=5.5}
+barley_year <- spread(barley_tot, year, yield)
+barley_year
+barley_year$year_diff <- barley_year$`1932` - barley_year$`1931`
+
+barley_diff <- select(barley_year, variety, site, year_diff)
+# Podemos analizar la tabla rápidamente
+spread(barley_diff, site, year_diff)
+
+ggplot(barley_diff, aes(x = site, y = year_diff)) + 
+  geom_hline(color = "red") +
+  geom_point() +
+  ylab("Yield difference (1932 vs 1931)")
+```
+
+Cuestiona tus resultados. Observamos que Morris tiene un patrón distinto al 
+resto de los sitios, esto también se observaba en la gráfica anterior. Cleveland 
+explica en su libro *Visualizing Data* que estos datos fueron analizados durante 
+muchos años tal cual los vemos; sin embargo, nuestro análisis muestra que la 
+cantidad por la que 1931 es superior a 1932 es muy similar al inverso en los 
+otros sitios (la cantidad por la que la producción de 1932 rebasa 1931). 
+Las gráficas que hemos generado muestran esta posibilidad y un poco más de 
+investigación lo confirmó.
+
+En este punto es fácil regresar para corregir el error y volver a correr
+el ejemplo. Si utilzaramos programas de *point and click* la corrección no es
+tan fácil.
+
+```{r, fig.height=3.4, fig.width=5.5}
+barley_morris <- filter(barley_tot, site == "Morris")
+barley_morris$year <- ifelse(barley_morris$year == 1932, 1931, 1932)
+barley_corrected <- rbind(subset(barley_tot, site!= "Morris"), 
+  barley_morris)
+
+barley_corrected_year <- spread(barley_corrected, year, yield)
+barley_corrected_year
+barley_corrected_year$year_diff <- barley_corrected_year$`1932` - 
+  barley_corrected_year$`1931`
+
+barley_corrected_diff <- select(barley_corrected_year, variety, site, year_diff)
+# Podemos analizar la tabla rápidamente
+spread(barley_corrected_diff, site, year_diff)
+
+ggplot(barley_corrected_diff, aes(x = reorder(site, year_diff), y = year_diff)) + 
+  geom_hline(color = "red") +
+  geom_point() +
+  ylab("Yield difference (1932 vs 1931)") +
+  xlab("site")
+```
+
+```{r, results='asis'}
+spread(barley_corrected_diff, site, year_diff)
+```
+
+Si nos interesan las variedades, podemos resumir la diferencia en cada año
+a lo largo de los distintos sitios. En la siguiente tabla mostramos la media
+entre años en cada sitio, junto con la desviación estándar de las diferencias
+en cada sitio.
+
+```{r}
+barley_sites <- group_by(barley_corrected_year, site)
+barley_sites_mean <- summarise(barley_sites, 
+  mean_site = round(mean(year_diff)),
+  sd_site = round(sd(year_diff))
+  )
+arrange(barley_sites_mean, mean_site, sd_site)
+```
+
+y si agrupamos también los sitios:
+
+```{r hold=TRUE}
+mean(barley_corrected_year$year_diff)
+sd(barley_corrected_year$year_diff)
+```
+
+Podemos hacer un resumen simple: en cada sitio, *ignorando las variedades*, la
+diferencia entre 1932 y 1931 es en promedio de $\mu=-9$ bushels por acre, con
+una desviación estándar de $\sigma=6$ bushels por acre. Más aún, dentro de cada
+sitio estas diferencias tienen aproximadamente una distribución $N(\mu,\sigma)$.
+¿Esta es una buena manera de describir la diferencia de años en los datos? 
+Veremos que la respuesta a esta pregunta depende de cuál sea el objetivo de 
+estas descripciones. Por el momento exploremos un ejemplo más simple.
+
+### Ejemplo: estaturas de hombres y mujeres
+Los datos *singer* (paquete *lattice* de R) consisten en registros de la 
+estatura en pulgadas de cantantes de la Sociedad de Coro de Nueva York. ¿Cómo
+podemos describit estos datos?
+
+```{r, echo=FALSE, eval = FALSE}
+# construcción de los datos
+head(singer)
+# creo base de datos singer-gender donde Sopranos y Alto -> F
+singer_gender <- singer %>% 
+  mutate(
+    gender = mapvalues(voice.part,
+      from = c("Soprano 1", "Soprano 2", "Alto 1", "Alto 2", "Tenor 1", 
+        "Tenor 2", "Bass 1", "Bass 2"),
+      to = c(rep("Female", 4), rep("Male", 4))), 
+    height = 2.54 * height) %>%
+  select(gender, height)
+
+write_csv(singer_gender, path = "data/singer_gender.csv")
+```
+
+Comenzamos calculando la media y desviación estándar.
+
+```{r}
+singer_gender <- read_csv("data/singer_gender.csv")
+singer_gender
+
+mean(singer_gender$height)
+sd(singer_gender$height)
+```
+
+Y hacemos una gráfica: 
+
+```{r, fig.height=2.5, fig.width=3}
+ggplot(singer_gender, aes(x = gender, y = height)) +
+  geom_jitter(position = position_jitter(width = 0.1, height = 1))
+```
+
+Supongamos que quisiéramos describir de manera simple los datos: independiente 
+de si se trata de un hombre o una mujer, la estatura es una medición que se 
+distribuye aproximadamente normal con media 171 cm y desviación estándar 10 cm. 
+¿Es razonable esta descripción?
+
+Una manera de probar que tan buena es una descripción es considerar que es lo 
+que veríamos si el modelo es el que acabamos de considerar. Para esto haremos
+19 simulaciones bajo el modelo $N(\mu,\sigma)$, y comparamos las simulaciones
+con los datos observados. ¿Captura este modelo las características importantes
+observadas?
+
+```{r, fig.width=7.5}
+library(nullabor)
+
+singer_null <- lineup(null_dist('height', dist = 'normal', 
+  params = list(mean = 171, sd = 10)), n = 20, singer_gender)
+
+ggplot(singer_null, aes(x = gender, y = height)) +
+  facet_wrap(~ .sample) +
+  geom_jitter(position = position_jitter(width = 0.1, height = 1), 
+    size = 0.8, alpha = 0.5)
+```
+
+Podemos concluir que el modelo no captura las características importantes 
+observadas pues podemos distinguir facilmente los datos de las simulaciones, 
+la razón es que, en general, los hombres son más altos que las mujeres, y hay 
+menos dispersión dentro de cada uno de esos grupos. Podemos intentar una 
+descripción un poco más compleja, si calculamos la media y desviación 
+estandar de cada grupo obtenemos:
+
+```{r}
+summarise(group_by(singer_gender, gender), 
+  mean_height = mean(height), 
+  sd_height = sd(height), 
+  num_obs = n())
+```
+
+Proponemos el siguiente modelo: la estatura es aproximadamente normal con media
+179 para hombres y 164 para mujeres, y la desviación estándar en ambos casos es
+de 6.5. Bajo la hipótesis de nuestro modelo, las estaturas de hombres y mujeres,
+centradas por sus medias correspondientes, son normales $N(0,6.6)$. Intentaremos
+otra técnica para evaluar que tan bueno es nuestro modelo: denominamos a las
+alturas centradas como alturas *residuales* y comparamos la distribución teórica
+con los residuales observados:
+
+```{r, fig.width=5, fig.height=3.5}
+singer_residuals <- mutate(group_by(singer_gender, gender), 
+  residuals = height - mean(height))
+theoretic_residuals <- data.frame(gender = "theoretic", 
+  residuals = rnorm(10000, 0, 6.6))
+residuals <- rbind(select(singer_residuals, gender, residuals), 
+  theoretic_residuals)
+
+ggplot(residuals, aes(x = residuals, color = gender)) +
+  geom_density(adjust = 1)
+```
+
+Más adelante estudiaremos variaciones de estas gráficas y herramientas con el 
+fin de juzgar que tan similares son. Por el momento nótese que a grandes
+razgos las distribuciones son similares y nuestro modelo da una buena 
+descripción de los aspectos importantes de estos datos.
+
+### Resumen
+
+1. **Transformar**. Hicimos varias reestructuraciones de los datos (con una
+especie de transposición que estudiaremos más adelante). También fue necesario
+generar nuevos datos a partir de los existentes haciendo cálculos y creando
+nuevas variables (diferencia entre años).
+
+2. **Visualizar**. Usamos gráficas para revelar estructura en los datos. En el 
+caso de la cebada vimos que con la herramienta correcta es fácil encontrar 
+inconsistencias grandes en los datos.
+
+3. **Transformar**. Corregimos los datos y repetimos los dos pasos anteriores.
+
+4. **Transformar**. Produjimos tablas resumen de los datos.
+
+5. **Modelar**. Usamos un modelo simple para describir un aspecto del 
+comportamiento de los datos.
+
+6. **Visualizar**. Produjimos visualizaciones para juzgar que tan apropiado 
+resultó nuestro modelo para describir la diferencia entre años.
+
+### Referencias
+* William S. Cleveland. [Visualizing Data](http://www.stat.purdue.edu/~wsc/visualizing.html), 1994.
+
+* Hadley Wickham, Dianne Cook, Heike Hofmann, y Andreas Buja, "[Graphical 
+Inference for Infovis](http://stat.wharton.upenn.edu/~buja/PAPERS/Wickham-Cook-Hofmann-Buja-IEEE-TransVizCompGraphics_2010-Graphical%20Inference%20for%20Infovis.pdf)", 2010.
+

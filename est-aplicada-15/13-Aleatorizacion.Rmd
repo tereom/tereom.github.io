@@ -1,0 +1,284 @@
+---
+title: "Aleatorización y error de muestreo"
+author: "Felipe González"
+output:
+  html_document:
+    css: ../estilos/cajas.css
+    theme: spacelab
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(comment=NA, fig.align="center")
+options(digits = 3)
+source("../codigo/tema_ggplot.R")
+```
+
+### Introducción
+
+El **muestreo** estudia el problema de seleccionar subconjuntos (*muestras*) de
+una *población* dada con el fin de estimar con precisión *características de 
+tal población*. Las características de una población son aquellas cantidades 
+que resultan de la agregación completa (sobre toda la población) de una 
+*medición* de los elementos de la población.
+
+Ejemplos:
+
+* Votación. Población: votantes potenciales en México. Medición: ¿piensa votar 
+por X? Característica poblacional: porcentaje que piensa votar por X.
+
+* Computadoras. Población: hogares del DF. Medición: número de computadoras en 
+un hogar. Características poblacionales: número de computadoras en hogares del 
+DF, o porcentaje de hogares del DF con al menos una computadora.
+
+* Desempeño en matemáticas. Población: alumnos de secundaria. Medición: examen 
+estandarizado de matemáticas. Característica poblacional: desempeño promedio 
+nacional.
+
+Definir la población objetivo, la forma de medición, y las características 
+poblacionales de interés, no son en general porblemas triviales. Por ejemplo, 
+¿Exactamente como definimos *votantes potenciales*? ¿Cómo definir hogares? 
+¿Cómo diseñar un examen estandarizado de matemáticas? ¿Qué quiere decir *piensa
+votar* por X? Estas y más preguntas se deben analizar con cuidado al definir el 
+problema a abordar; sin embargo, por ahora ignoraremos estos aspectos y nos 
+concentramos en la selección de muestras.
+
+Comenzamos con notación, denotamos las poblaciones como 
+
+$$\Omega = \{\omega_1,\omega_2,...,\omega_N\}$$
+donde $N$ es el tamaño de la población y $\omega_1,\omega_2,...,\omega_N$ son 
+los elementos de la misma. A cada $\omega_i$ le corresponde la medición de 
+interés que denotamos por $y_1,y_2,...,y_N$ (donde $y_i$ es la medición 
+correspondiente a $\omega_i$).
+
+Entonces, la idea básica del muestreo es la siguiente:
+
+<div class="caja">
+Una muestra **aleatoria** y **suficientemente grande** es **similar** (bajo 
+ciertas consideraciones que dependen de como se seleccione la muetsra) a la 
+población en las características de interés **con probabilidad alta**.
+</div>
+
+Esto captura la idea básica; sin embargo, en algunos casos y por diversas 
+razones, podemos sesgar la muestra de maneras conocidas para economizar o hacer
+más eficiente nuestro esquema de muestreo. En este caso, la **similitud** de 
+muestra y población es bajo ciertos requisitos de manejo de datos.
+
+El muestreo generalmente se basa en un enfoque basado en diseño, en contraste al
+enfoque más común de la estadística que es basado en modelos. Esto se puede ver
+en que las mediciones de la población de interés *no son variables aleatorias*, 
+si no valores fijos, e introducimos aleatoriedad a través de aleatoriedad en la 
+selección de la muestra. En el enfoque de modelos, las cantidades observadas son
+más bien variables aleatorias con cierta distribución (modelo).
+
+#### Ejemplo: Votación presidencial 2006
+Consideremos los [datos del INE](http://www.ine.mx/documentos/Estadisticas2006/index.htm)
+correspondientes a la elección presidencial de 2006 en el DF. La población es 
+de $N=12235$ casillas, la medición que nos interesa en cada casilla es si el PAN 
+le ganó al PRD en número de votos. Ponemos entonces $y_i=1$ si en la i-ésima 
+casilla el PAN le ganó al PRD y $y_1=0$ si no. La característica poblacional es 
+el porcentaje de casillas donde el PAN le ganó al PRD, y se puede escribir como:
+
+$$\frac{1}{N}\sum_{i=1}^n y_i$$
+
+Consideramos muestras aleatorias de tamaño 200, donde cada posible muestra sin 
+reemplazo de la población tiene la misma probabilidad de ser seleccionada.
+
+```{r}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(readr)
+eleccion_df <- read_delim("datos/eleccion_df.txt", delim = ";")
+head(eleccion_df)
+```
+
+Definimos el tamaño de muestra y extraemos una muestra como se describió arriba:
+
+```{r}
+# tamaño de la población
+N <- nrow(eleccion_df)
+N
+# tamaño de muestra
+n <- 200
+set.seed(8372973)
+
+muestra <- sample_n(eleccion_df, size = n)
+dim(muestra)
+```
+
+Ahora examinamos en nuestra muestra el número de casillas en las que el PAN le 
+ganó al PRD:
+
+```{r}
+muestra$PAN_mayor_PRD <- muestra$PAN > muestra$PBT
+table(muestra$PAN_mayor_PRD)
+prop.table(table(muestra$PAN_mayor_PRD))
+```
+
+¿Cómo podríamos estimar en la población total el porcentaje de casillas donde el
+PAN le ganó al PRD? Como la muestra es aleatoria, y suponiendo que el tamaño de
+muestra es suficientemente grande, esperaríamos que la distribución de la 
+cantidad de interés en la muestra sea similar a la correspondiente en la 
+población. Esto quiere decir que si en la muestra observamos que la proporción 
+de casillas donde el PAN le ganó al PRD es
+
+```{r}
+sum(muestra$PAN_mayor_PRD) / n
+```
+
+entonces la proporción debe ser similar en la población total, y este último 
+número es nuestra estimación para la población total. En este ejemplo tenemos el 
+valor para toda la población por lo que podemos ver como se compara la 
+estimación con el valor real.
+
+```{r}
+sum(eleccion_df$PAN > eleccion_df$PBT) / N
+```
+
+En la misma situación que el ejemplo anterior, supongamos ahora que queremos 
+estimar el total de votos emitidos en favor del PRI.
+
+¿Cómo estimamos el total de votos por el PRI? Si el tamaño de muestra es 
+suficiente, como la muestra fue elegida al azar, la muestra debe ser *similar* 
+a la población con probabilidad alta. 
+
+Podemos empezar por calcular el total de la muestra de 200 casillas:
+
+```{r}
+sum(muestra$APM)
+```
+
+En este caso, si la muestra es similar a la población, deberíamos estimar el 
+total poblacional mediante:
+
+$$\frac{N}{n}\sum_{i\in S}y_i$$
+
+donde la suma recorre aquellos elementos que se seleccionaron en la muestra. En 
+contraste con el ejemplo anterior, aquí vemos que es necesario **expandir** la 
+suma (de 200 casillas) al total (12235 casillas). Esto es razonable si la 
+muestra es una especie de *microcosmos* de la población total. Estamos 
+suponiendo que las 61.17 casillas ($N/n=61.17$) que representa cada una de las
+casillas de la muestra se comportan de manera similar a las que están en la 
+muestra.
+
+```{r}
+N / n * sum(muestra$APM)
+```
+
+¿Qué tan precisas son estas estimaciones? Para conocer el valor exacto sería 
+necesario conocer el verdadero valor poblacional, el cuál no esta disponibles 
+(por eso queremos estimarlo). Es aquí donde los conceptos de *aleatorización* 
+y *similar con probabilidad alta* son importantes: el estimador es una variable
+aleatoria cuyo azar está inducido por la selección aleatoria de la muestra.
+Esto quiere decir que tiene una distribución, si la probabilidad de tal 
+distribución está altamente concentrada alrededor del verdadero valor 
+poblacional, entonces una estimación particular basada en una muestra particular 
+tiene alta probabilidad de estar cerca del verdadero valor.
+
+**Observación:** No todas las muestras dan buenas estimaciones. Por ejemplo, si
+seleccionamos deliberadamente a las casillas con menor número de votos por el 
+PRI, obtendríamos:
+
+```{r}
+# selecciona las primeras 200 ordenadas (ascendentemente) por votos PRI
+muestra_menor_pri <- eleccion_df %>%
+  arrange(APM) %>%
+  slice(1:200)
+N / n * sum(muestra_menor_pri$APM)
+```
+
+que esta muy lejos del verdadero valor, que es:
+
+```{r}
+pri_pob <- sum(eleccion_df$APM)
+pri_pob
+```
+
+La muestra anterior podría obtenerse de manera aleatoria; sin embargo, es muy 
+poco probable (menos de $2^{-100}$) que esto ocurra de manera aleatoria. La 
+probabilidad es menor que la probabilidad de escoger un átomo en particular del
+total de los que hay en el universo. La mayor parte de las muestras de tamaño 
+200 representan apropiadamente a la población en cuanto a votos del PRI, como 
+lo demuestra el siguiente ejercicio.
+
+No podemos calcular todas las posibles muestras y ver las estimaciones que 
+produce cada una de ellas, pero si podemos simular miles de ellas y darnos una 
+idea muy buena de los valores que puede tomar el estimador total:
+
+```{r, fig.width=4.5, fig.height=4}
+# escribimos una función que toma una muestra de tamaño n cada vez que se ejecuta
+totalPriMuestra <- function(n = 200){
+  muestra <- sample_n(eleccion_df, n)
+  total <- N / n * sum(muestra$APM)
+  total
+}
+# llamamos la función 10,000 veces
+totales_estimados <- rdply(10000, totalPriMuestra(n=500))
+head(totales_estimados)
+ggplot(totales_estimados, aes(x = V1)) +
+  geom_histogram() +
+  geom_vline(xintercept = pri_pob, color = "red")
+```
+
+En el histograma anterior vemos que en 10,000 selecciones aleatorias de una 
+muestra de tamaño 200, las estimaciones producidas están razonablmente cerca del
+verdadero valor representado por la línea roja. Calculamos los cuantiles 0.025 y 
+0.975 de estos valores.
+
+```{r}
+cuantiles <- quantile(totales_estimados$V1, probs = c(0.025, 0.975))
+cuantiles
+
+cuantiles_relativos <- cuantiles / sum(eleccion_df$APM) - 1
+cuantiles_relativos
+```
+
+E interpretamos: con probabilidad 95%, la estimación producida por este método
+está a menos de 5.2% del valor verdadero. Es decir, el *error relativo* de 
+estimación es de menos de 5.2% con probabilidad 95%. Si este error relativo es
+aceptable para nosotros, entonces confirmamos que nuestro método de muestreo con
+muy alta probabilidad dará un resultado aceptable.
+
+## Muestreo probabilístico
+Un **esquema de muestreo probabilítsico** es uno donde la selección de la 
+muestra incorpora elementos de azar. Sin embargo, no cualquier esquema es 
+apropiado para hacer inferencia, y algunos son apropiados en unas situaciones y 
+no en otras. Por ejemplo, para una población grande (una ciudad, por ejemplo) en
+muy pocos casos consideraríamos que un esquema donde sólo dos elementos tienen 
+probabilidad positiva de ser elegidos es apropiado para estimar con presición
+una característica poblacional.
+
+Es relativamente fácil establecer algunos supuestos no muy restrictivos y 
+estimadores asociados con los que es razonable comenzar a trabajar. Por ejemplo, 
+si las siguientes cuatro condiciones se cumplen, entonces es posible hacer 
+inferencia a partir de una muestra dada.
+
+<div class="caja">
+**Supuestos básicos para el muestreo probabilístico:**
+
+1. Cada individuo de la población tiene probabilidad positiva $\pi_{i}>0$, 
+$i=1,2,...,N$ de ser seleccionado en la muestra.
+
+2. $\pi_i$ se puede calcular para cada elemento seleccionado *en la muestra*.
+
+3. Cada par de individuos en la población tiene probabilidad positiva 
+$\pi_{ij}>0$, $i,j=1,2,...,N$ de ser seleccionado en la muestra.
+
+4. $\pi_{ij}$ se puede calcular para cada par de individuos seleccionado *en la 
+muestra*.
+</div>
+
+Observaciones:
+
+* Estos cuatro incisos nos permiten construir estimadores con precisión 
+calculable. Los primeros dos nos permiten construir estimadores razonables (por
+ejemplo, que sean insesgados), y los últimos dos nos permite hacer estimaciones 
+de su varianza.
+
+* En 2 y 3 sólo es necesario calcular $\pi_i$ y $\pi_{ij}$ *para aquellos 
+elementos que aparezcan en la muestra*. No es necesario tener que calcular a
+priori para cualquier elemento de la población.
+
+* En la práctica rara vez se cumplen todos estos incisos, por ejemplo, por la 
+no respuesta: algunos individuos se niegan a contestar. Más adelante veremos 
+como lidiar con aproximaciones a este esquema.

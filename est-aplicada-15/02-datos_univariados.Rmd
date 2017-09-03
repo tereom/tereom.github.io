@@ -1,0 +1,491 @@
+---
+title: "Datos univariados y su distribución"
+author: "Felipe González"
+output:
+  html_document:
+    css: ../estilos/cajas.css
+    theme: spacelab
+  pdf_document: default
+  word_document: default
+---
+
+Estudiaremos análisis exploratorio de datos univariados, en particular 
+abordaremos los siguientes temas:
+
+* Diagramas de tallo y hoja.
+
+* Tablas de frecuencias.
+
+* Histogramas
+
+
+<!--<link rel="stylesheet" href="tufte.css"/>-->
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(comment=NA, fig.align="center")
+options(digits = 4)
+source("../codigo/tema_ggplot.R")
+```
+
+## Distribución de conjuntos de datos numéricos
+
+Una de las tareas más frecuentes e importantes en el análisis exploratorio
+es la descripción y visualización de la variación que existe dentro de un 
+conjunto de datos. Esto es, los valores en un conjunto de datos no son todos
+iguales y queremos entender como varían: que valores aparecen, dónde se acumulan
+la mayoría de ellos, si hay valores notables o extraños, etc.
+
+
+### Diagramas de tallo y hoja
+Consideramos las siguientes mediciones de ozono en el aire, producidas por la 
+red automática de monitoreo ambiental ([SIMA](http://www.aire.df.gob.mx/default.php?opc='aKBhnmI='&opcion=Zg==)). Las
+mediciones son concentración de ozono (en ppb o partes por billón) para las 
+estaciones de Tlalnepantla e Iztapalapa, tomadas a las 2 pm, durante 2014. 
+Una exposición de 110 ppb durante una hora se considera aguda.
+
+```{r message=FALSE}
+library(tidyr)
+library(dplyr)
+
+# leemos la base de datos
+contaminantes <- read.csv("datos/contaminantes_2014.csv", comment.char = "#", 
+  stringsAsFactors = FALSE)
+# creamos una variable hora
+contaminantes <- mutate(contaminantes, 
+  hora = substring(contaminantes$date, 12, 13))
+# filtramos para obtener las estaciones y contaminantes de interés
+ozono <- filter(contaminantes, id_parameter == "O3", hora == 14,
+  id_station %in% c("TLA", "UIZ"))
+
+head(ozono)
+```
+
+```{r, include=FALSE}
+# creamos base para notas de clase 4
+ozono <- select(ozono, id_station, o3 = value)
+save(ozono, file = "../04-univariados/data/o3.Rdata")
+```
+
+
+Notemos que hay días sin medición por lo que se registró *NA*.
+
+```{r}
+table(is.na(ozono$value), ozono$id_station)
+```
+
+Ahora separamos los datos por estación.
+
+```{r}
+ozono_station <- spread(ozono, id_station, value)
+ozono_station <- select(ozono_station, date, TLA, UIZ)
+
+ozono_station$TLA
+ozono_station$UIZ
+```
+
+Observemos que los valores faltantes no se concentran de manera grave en ninguna 
+época particular del año.
+
+La representación anterior nos permite ver algunos aspectos de los datos; sin
+embargo, no es una manera especialmente útil o confiable, pues de la tabla es 
+difícil entender que *no* estamos viendo. Una mejor manera de disponer los 
+números de estas tablas es:
+
+1. Ordenamos cada conjunto de menor a mayor.
+
+2. Agrupamos los números según sus centenas y descenas.
+
+3. Acomodamos los grupos según las categorías obtenidas en el inciso anterior.
+
+Cuando dos mediciones están en el mismo grupo de centenas/decenas, diremos
+que están en el mismo *tallo*. Cada una de las mediciones del *tallo* forman
+sus *hojas*. Finalmente, en un diagrama de tallo y hoja acomodamos los tallos
+en orden en los renglones, y luego agregamos las hojas a cada tallo según
+el valor de la posición de unidades de la medición.
+
+```{r, echo=FALSE}
+ozono_station$TLA <- ifelse(ozono_station$TLA <= 10, ozono_station$TLA + 10, 
+  ozono_station$TLA)
+```
+
+
+```{r}
+stem(ozono_station$TLA)
+stem(ozono_station$UIZ)
+```
+
+En los diagramas de arriba hemos representado los conjuntos completos de datos, 
+esto es, no hemos perdido ninguna información. Adicionalmente, podemos ver 
+cláramente los máximos y mínimos, así como valores comunes, alrededor de qué 
+valores se agrupan los datos.
+
+<div class='clicker'>
+1. ¿Que datos están más dispersos?
+a. Tlalpan
+b. Iztaplapa
+c. Están igual
+
+2. ¿Los datos parecen formar subgrupos?
+a. Sí
+b. No
+
+3. ¿Cuántos días de exposición aguda hubo en Tlalnepantla durante 2014?
+a. Ninguno
+b. 1-5
+c. 6-10
+d. Más de 10
+
+</div>
+
+Algunas de las preguntas que nos ayudan a contestar los diagramas de tallo
+y hoja son:
+
+<div class='caja'>
+#### Patrones de variación
+
+*  ¿Alrededor de que valores se concentra el conjunto de datos?
+
+* ¿Qué tan dispersos están los datos? ¿Qué rango de valores cubren?
+
+* ¿Qué tan simétrico es el conjunto de datos?
+
+* ¿Los datos parecen formar subgrupos? ¿Hay huecos donde no se observan 
+mediciones?
+
+* ¿Hay observaciones atípicas?
+</div>
+
+Los diagramas de tallo y hojas están limitados pues, por ejemplo, no son
+tan efectivos con muchos datos.
+
+## Tablas de frecuencias
+La técnica de diagramas de tallo y hoja nos permite visualizar y leer (en 
+principio) todos los aspectos de la variación que existe en un conjunto de 
+datos. Sin embargo, a veces nos interesa suavizar los datos para identificar 
+claramente los patrones de variación en escalas específicas. Por ejemplo, 
+muchas veces no nos interesa (debido a que es pequeña) la variación 
+proveniente de errores en los instrumentos de medición. Normalmente estos 
+errores deben ser de magnitudes chicas en relación al tipo de efectos que nos 
+interesa en nuestra investigación. Consideremos las siguientes mediciones del
+tiempo en minutos que duró cada una de 272 erupciones sucesivas de un géiser 
+(el Old faithful). Los datos están en el paquete *datasets* que se distribuye 
+con *R*:
+
+```{r}
+faithful$eruptions
+
+stem(faithful$eruptions, scale = 2)
+```
+
+En el diagrama anterior notamos que hay dos grupos bien definidos. Otra
+manera de representar estos datos es mediante un diagrama de dispersión 
+en una dimensión.
+
+```{r,fig.width=8.8, fig.height=1.8, echo = FALSE, message = FALSE}
+ggplot(faithful, aes(x = eruptions)) + 
+  geom_dotplot(binwidth = .015, stackgroups = TRUE, binpositions="all", 
+    dotsize = 2.2) + 
+  # theme_minimal() 
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+  ylab("")
+
+```
+
+En el grupo de la derecha observamos una serie de picos que no parecerían ser
+resultado de variación en las erupciones. Estos picos pueden confirmarse en el 
+diagrama de tallo y hoja donde vemos claramente una sobreabundancia de hojas
+igual a cero (las hojas corresponden a la cifra de centésimas). Esto pone en 
+duda la presición sugerida de los datos a tres decimales, y probablemente se 
+deba a efectos de redondeo.
+
+En este caso es posible que no queramos ver ese patrón de variación que ocurre
+en la escala de centésimas, pues distrae de los aspectos de estos datos que
+se refieren a los tiempos de erupción. Una manera de hacer esto es creando 
+intervalos de longitud 1/10, contando cuantos puntos caen en cada subintervalo
+y graficando las frecuencias obtenidas.
+
+```{r}
+minimo <- min(faithful$eruptions) - 0.1
+maximo <- max(faithful$eruptions) + 0.1
+cortes <- seq(minimo, maximo, by = 1/10)
+faithful$intervalo <- cut(faithful$eruptions, breaks = cortes)
+head(faithful)
+```
+
+Ahora calculamos las frecuencias (cuántos datos hay en cada intervalo). 
+Nótese que por convención usamos intervalos cerrados por la derecha.
+
+```{r}
+table(faithful$intervalo)
+```
+
+<div class="caja">
+**Categorización de una variable numérica.** Categorizar una conjunto de datos 
+numéricos consiste en asignar cada dato $x$ del conjunto a un elemento de una 
+partición de un conjunto que contenga a $x$. Generalmente los elementos de la 
+partición son intervalos semiabiertos, que comunmente se llaman intervalos de 
+clase.
+</div>
+
+Podemos hacer una gráfica de barras con estas frecuencias.
+
+```{r}
+hist_erupciones <- hist(faithful$eruptions, breaks = cortes,
+    col = "gray40", border = NA, main="")
+```
+
+y podemos suavizar más o menos nuestra gráfica cambiando el ancho de los 
+intervalos.
+
+<div class="clicker">
+4. Para lograr mayor suavizamiento necesito intervalos mas ...
+
+a. anchos
+
+b. angostos
+</div>
+
+```{r, fig.width=9, fig.height=1.6}
+grafFreq <- function(delta){
+  minimo <- min(faithful$eruptions) - 0.1
+  maximo <- max(faithful$eruptions) + 0.1
+  cortes <- seq(minimo, maximo + delta, by = delta) 
+  hist(faithful$eruptions, breaks = cortes, col = "gray40", border = NA, 
+    main = "", xlim = c(1,6), ylab = "", xlab = "") }
+par(mfcol = c(1,6))
+grafFreq(0.05)
+grafFreq(0.10)
+grafFreq(0.15)
+grafFreq(0.20)
+grafFreq(0.60)
+grafFreq(0.90)
+```
+
+### Suavizamiento de datos y elección de ancho de intervalos
+El objetivo de cambiar el ancho de los intervalos es poder apreciar la
+variación de los datos a diferentes escalas. La recomendación general es que
+es mejor probar con distintos anchos de los intervalos para resaltar distintos
+aspectos de los datos. En general, intervalos demasiado chicos pueden interferir
+con nuestra percepción de los patrones más grandes en los datos, mientras que 
+intervalos demasiado grandes pueden contener poca información acerca del 
+conjunto de datos.
+
+<div class="caja">
+**Selección de ancho de los intervalos.** No hay una receta simple, lo mejor es
+experimentar con varios anchos y ver que expresa cada una de las gráficas 
+obtenidas. Otra posible regla es decidir cuál es una pérdida de presición 
+aceptable y escoger consecuentemente el tamaño de los intervalos.
+</div>
+
+Por el momento, una buena idea es comenzar con intervalos muy angostos e 
+irlos incrementando hasta obtener un nivel de suavizado aceptable 
+(dependiendo del objetivo de nuestro análisis) existe teoría y varios 
+métodos para escoger el tamaño de los intervalos ([David W. Scott 1992](http://www.wiley.com/WileyCDA/WileyTitle/productCd-0471547700.html)).
+
+Nótese también que al incrementar el tamaño de los intervalos de la partición
+ignoramos variación a escalas más chicas, pero no del todo. Parte de esa
+variación a escalas chicas se refleja en la desición del punto inicial de los
+intervalos: es decir, aunque los intervalos sean de longitud $\delta$, es
+posible mover ligeramente la posición de los intervalos por fracciones de 
+$\delta$ y obtener gráficas diferentes. Más adelante veremos un enfoque que 
+resuelve esta característica de este tipo de gráficas.
+
+### Frecuencias absolutas y relativas
+
+Hasta ahora, hemos visto tablas de *frecuencias absolutas*, es decir, cuentan
+los datos que caen en cada intervalo. Tabién es posible usar *frecuencias
+relativas*, que registran la proporción de datos que cae en cada intervalo.
+
+Para el caso del géiser podemos considerar la siguiente partición.
+
+```{r}
+minimo <- min(faithful$eruptions) - 0.1
+maximo <- max(faithful$eruptions) + 0.1
+cortes <- seq(minimo, maximo + 0.5, by = 0.5)
+cortes
+```
+
+Construimos la tabla de frecuencias absolutas:
+
+```{r}
+faithful$intervalo <- cut(faithful$eruptions, breaks = cortes)
+faithful_frecs <- summarise(group_by(faithful, intervalo),
+    frec_absoluta = n())
+faithful_frecs
+```
+
+Y las frecuencias relativas son:
+
+```{r}
+faithful_frecs$frec_relativa <- faithful_frecs$frec_absoluta / 
+  sum(faithful_frecs$frec_absoluta)
+format(faithful_frecs, digits = 2)
+```
+
+### Tablas de frecuencias para variables categóricas
+
+La tabla de frecuencias de una variable cualitativa se construye como sigue,
+identificamos las categorías de la variable categórica (posibles valores):
+$C_1,C_2,...,C_m$, y contamos el número de datos de cada tipo: 
+$n_1,n_2,...,n_m$. Esras son las frecuencias absolutas. Las relativas 
+$f_1,f_2,...,f_m$ se calculan dividiendo $n_1,n_2,...,n_m$ entre el número de 
+datos en el concunto ($n_1+n_2+...+n_m$).
+
+La única decisión que tenemos que tomar es acerca del orden en que enlistamos 
+las categorías $C_1,C_2,...,C_m$, si la medición es ordinal (es decir, tiene
+un orden natural), entonces podemos elegir ese orden (ej. escolaridad: kinder,
+primaria, secundaria, etc.). Si es nominal (ej. nacionalidad: mexicana, 
+canadiense, española, etc.) y no existe ningún otro orden razonable, podemos
+ordenarlas según los valores $n_1,n_2,...,n_m$.
+
+#### Ejemplo: monedas
+Tenemos una colección de 46 monedas para las cuales registramos su año de
+acuñación. Nuestra colección contiene denominaciones de 50 centavos a 10 pesos.
+
+```{r}
+monedas <- c(rep(1992,3), rep(1993,4), rep(1994,3), 1996, rep(1997,2),
+    rep(1998,2), rep(1999,4), rep(2000,2), rep(2002,5), rep(2003,5),
+    rep(2004,4), rep(2005,3), rep(2006,7), rep(2007,2))
+```
+
+Y graficamos la tabla de frecuencias:
+
+```{r, fig.width=6, fig.height=2.5}
+par(mfcol = c(1,2))
+plot(table(monedas), ylab = 'Frecuencia absoluta')
+plot(prop.table(table(monedas)), ylab='Frecuencia relativa')
+```
+
+Otra opción es una gráfica de *pie*:
+
+```{r}
+pie(table(monedas), main = '¡No usar esta gra ́fica!')
+```
+
+<div class="clicker">
+Usando el pie determina, ¿Cómo se compara la cantidad de monedas que tengo para
+1996 con la que tengo para 1993?
+
+a. En 1996 hay la mitad de monedas que en 1993.
+
+b. En 1996 hay un tercio de monedas que en 1993.
+
+c. En 1996 hay un cuarto de monedas que en 1993.
+</div>
+
+
+## Histogramas
+
+<div class="caja">
+Los **histogramas** son gráficas de barras que se obtienen a partir de tablas de
+frecuencias, donde cada barra se escala según la frecuencia relativa entre el
+ancho del intervalo de clase correspondiente.
+</div>
+
+Esta propiedad de los histogramas implica que la suma de las áreas de las barras
+en un histograma siempre es uno (pues las frecuencias relativas siempre suman
+uno). Para entender por que hacer este escalamiento, supongamos que nuestros 
+datos $x_1,...,x_n$ son $n$ observaciones de una variable aleatoria continua
+con densidad de probabilidad continua $f$. Para cualquier intervalo chico $I$
+de longitud $\Delta$ tenemos que:
+
+$$P(X \in I) = \int_I f(x)dx \approx m(I)\Delta$$
+
+donde $m(I)$ es el valor promedio de $f(x)$ en $I$. Según la interpretación
+frecuentista de la probabilidad, la frecuencia relativa $N(I)/n$ de 
+observaciones $x_1,...,x_n$ que caen en el intervalo $I$ es, para $n$ grande, 
+cercano a $P(X \in I)$. De esta forma, tenemos que:
+
+$$\frac{N(I)}{n\Delta} \approx \frac{P(X \in I)}{\Delta} \approx m(I).$$
+
+De esta manera vemos que si cada barra de la gráfica de barras de frecuencias 
+relativas es escalada por el ancho de su intervalo correspondiente, la nueva
+altura de las barras aproximan el valor promedio de la densidad $f$ en cada uno
+de los intervalos.
+
+Aunque casi nunca sabemos la densidad de donde provienen los datos, esta forma
+de reescalar los histogramas es conveniente porque nos permite comparar 
+fácilmente histogramas de distintos conjuntos de datos.
+
+### Ejemplo: exponencial
+
+Tomamos 1000 observaciones de una variable aleatoria exponencial con parámetro 
+1, graficamos el histograma correspondiente con ancho de intervalos igual a 0.5,
+y finalmente superponemos la función de densidad:
+
+```{r, fig.width=3.7, fig.height=3.7}
+set.seed(72)
+x_sim <- data.frame(id = 1:1000, x = rexp(1000, rate = 1))
+hist(x_sim$x, breaks = seq(0, 9, 0.5), col = "gray", freq = FALSE, main = "") 
+exp_1 <- function(x){ dexp(x, rate = 1) }
+curve(exp_1, add = TRUE, from = 0.05, to = 9,
+    col = "red", lwd = 2, main = "")
+```
+
+Nuestra convención es que llamaremos *histograma* a la gráfica de barras de 
+frecuencias relatvias escaladas por los tamaños de los intervalos. Igual que en
+los diagramas de tallo y hoja o en las gráficas de puntos, en los histogramas 
+buscamos entender alrededor de que valores se agrupan los datos, dispersión,
+forma (simetría, sesgo, colas largas o cortas), evidencia de subgrupos y casos
+atípicos.
+
+```{r, echo=FALSE, eval=FALSE}
+ggplot(x_sim, aes(x = x)) + 
+  geom_histogram(fill = "darkgray", color = "gray", aes(y = ..density..), 
+    breaks = seq(0, 9, 0.5)) +
+  stat_function(data = data.frame(x=seq(0.05, 9, 0.5)), fun = dexp, rate =1, color = "red") 
+```
+
+
+### Ejemplo: inestabilidad de histogramas
+Los histogramas presentan cierta inestabilidad en cuanto a la forma empírica
+que representan. Esto se deabe al proceso discreto de su construcción. En el 
+siguiente ejemplo, variamos el punto de inicio de la partición y vemos que en 
+distintos casos las formas representadas pueden ser muy distintas.
+
+```{r, fig.width = 6, fig.height = 3}
+set.seed(28)
+x_sim <- rnorm(80)
+min_x <- min(x_sim)
+max_x <- max(x_sim)
+par(mfcol=c(1,3))
+hist(x_sim, seq(min_x - 0.5, max_x + 0.5, by = 0.4))
+hist(x_sim, seq(min_x - 0.2, max_x + 0.7, by = 0.4))
+hist(x_sim, seq(min_x - 0.4, max_x + 0.9, by = 0.4))
+```
+
+### Ejemplo: histograma con anchos de intervalo variables
+
+Cuando hacemos gráficas de barras de frecuencias relativas, no tiene mucho 
+sentido variar el ancho de los intervalos: por ejemplo, dos gráficas de barras 
+con intervalos variables distintos no son comparables. Adicionalmente, las 
+gráficas resultantes no tienen una interpretación de aproximación a la densidad 
+como tienen los histogramas. En los histogramas anchos variables no representan 
+un problema, pues están normalizados por tales anchos. Con los mismos datos del 
+ejemplo anterior podemos hacer unos ejercicios (en estos casos escogemos anchos 
+al azar).
+
+```{r, fig.width = 5.5}
+set.seed(2872)
+x_sim <- rexp(1000, rate = 1)
+par(mfcol = c(2,2))
+hist(x_sim, breaks = c(0, runif(20, 0, 9), 9), col = "gray", freq = FALSE,
+main ="")
+curve(exp_1, add = TRUE, from = 0.05, to = 9,
+    col = "red", lwd = 2, main = "")
+
+hist(x_sim, breaks = c(0, runif(20, 0, 9), 9), col = "gray", freq = FALSE,
+main ="")
+curve(exp_1, add = TRUE, from = 0.05, to = 9,
+    col = "red", lwd = 2, main = "")
+
+hist(x_sim, breaks = c(0, runif(20, 0, 9), 9), col = "gray", freq = FALSE,
+main ="")
+curve(exp_1, add = TRUE, from = 0.05, to = 9,
+    col = "red", lwd = 2, main = "")
+
+hist(x_sim, breaks = c(0, runif(20, 0, 9), 9), col = "gray", freq = FALSE,
+        main ="")
+curve(exp_1, add = TRUE, from = 0.05, to = 9,
+    col = "red", lwd = 2, main = "")
+```
+

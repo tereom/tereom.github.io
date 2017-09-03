@@ -1,0 +1,587 @@
+---
+title: "Datos univariados y su distribución"
+author: "Felipe González"
+output:
+  html_document:
+    css: ../estilos/cajas.css
+    theme: spacelab
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(comment=NA, fig.align="center")
+options(digits = 4)
+source("../codigo/tema_ggplot.R")
+```
+
+### Homogeneidad y pooling
+
+En la descripción de los cantantes que produjimos arriba hicimos una 
+comparación de la distribución de los residuales en cada grupo y concluimos
+que todos tenían, aproximadamente, distribución normal con la misma dispersión.
+
+Lo que descubrimos es que los residuales son **homogéneos**. Un aspecto 
+importante de este descubrimiento es que cuando observamos homogeneidad podemos
+hacer **pooling**, y cuando hacemos *pooling* podemos describir de manera más
+precisa la estructura comñun que encontramos.
+
+En el ejemplo de propinas, podríamos describir parte de la dispersión agrupando
+hombres y mujeres, y dar los cuartiles a total:
+
+```{r, echo = FALSE, fig.width=3.5, fig.height=3.5}
+library(reshape2)
+tips$prop <- tips$tip/tips$total_bill
+```
+
+```{r}
+round(quantile(tips$prop), 2)
+```
+
+Esta descripción es más robusta pues utiliamos *todos* los datos para 
+construirla, y además es más simple que dar resúmenes por grupo.
+
+En nuestro ejemplo de los cantantes, *pooling* quiere decir que una vez que 
+eliminamos el desplazamiento de las medias entre los grupos, es posible usar el
+total de los datos para describir variación que encontramos en los residuales. 
+Esto hace que nuestra descripción de los residuales sea más precisa o 
+informativa, pues usamos la variación de *todos* los residuales para describir 
+su variación.
+
+¿Cómo decidir si podemos hacer *pooling*?
+
+### Gráficas qq y pooling
+
+Una manera eficiente de investigar si es posible agrupar conjuntos de datos 
+para describir su distribución común es haciendo gráficas qq de los cuantiles
+de cada grupo contra los cuantiles agrupados:
+
+```{r, message=FALSE}
+library(ggplot2)
+library(lattice)
+library(dplyr)
+# calculamos la estatura en centímetros
+singer$estatura.m <- singer$height * 2.54
+
+# calculamos el valor f dentro de cada grupo
+singer_ord <- arrange(group_by(singer, voice.part), estatura.m)
+singer_ajuste <- mutate(singer_ord, 
+  media = mean(estatura.m), 
+  residual = estatura.m - media, 
+  mediana = median(estatura.m),
+  mediana_residual = median(residual))
+```
+
+```{r, fig.width=6, fig.height=4.5}
+todos_residual <- sort(singer_ajuste$residual)
+singer_ajuste
+singer_total <- singer_ajuste %>%
+  arrange(residual) %>%
+  mutate(
+    n_obs = n(),
+    cuantil_total = approx(x = 1:length(todos_residual), y = todos_residual, 
+      n = n_obs[1])$y
+  )
+
+ggplot(singer_total, aes(x = cuantil_total, y = residual)) +
+  geom_point() +
+  facet_wrap(~ voice.part, nrow = 2) +
+  stat_smooth(method = "lm")
+```
+
+Esta gráfica confirma que a distribución de los residuales agrupados describe
+apropiadamente los residuales dentro de cada grupo.
+
+### Ajuste de la distribución normal
+Gracias al paso anterior, hacer *pooling* de los residuales está justificado, 
+así que para entender la variación de los residuales podemos usar el total de
+los residuales.
+
+Ahora podemos hacer una gráfica qq normal para ver si el modelo normal es 
+adecuado para describir la distribución de los residuales:
+
+```{r, fig.width=3.4, fig.height=3.4}
+n <- nrow(singer_total)
+singer_normal <- singer_total %>%
+  ungroup() %>%
+  arrange(residual) %>%
+  mutate(
+    valor.f.tot = (seq(1, n) - 0.5) / n, 
+    q.norm.tot = qnorm(valor.f.tot)
+  )
+ggplot(singer_normal, aes(x = q.norm.tot, y = residual)) +
+  geom_point() +
+  stat_smooth(method = "lm")
+```
+
+Donde vemos que la distribución normal es adecuada para describir la 
+distribución de los residuales agrupados.
+
+Para estimar la desviación estándar de los residuales usamos la cantidad:
+
+$$\sqrt{\frac{1}{n-8}\sum_{p=1}^8\sum_{i}\hat{\epsilon}_{pi}^2}$$
+
+que es igual a:
+
+```{r}
+s <- round(sqrt(sum(singer_normal$residual ^ 2)/(nrow(singer_normal) - 8)), 1)
+s
+```
+
+Notemos que dividimos entre $n-8$ (8 es el número de grupos), de forma que el 
+estimador $s^2$ sea un estimador insesgado de la varianza de los residuales 
+agrupados (esto es consecuencia de que los residuales se calculan con medias
+*estimadas*, pues no conocemos las reales).
+
+Así que la distribución que ajustamos a los residuales es normal con media cero
+y desviación estándar 6.4 centímetros. Podemos resumir eficientemente: por 
+ejemplo, 95% de las estaturas de cada grupo de cantantes están a no más de 13
+centímetros de la media de su grupo. Para las sopranos 1, por ejemplo, su 
+estatura está en el intervalo $163\pm 2(6.4) = 164 \pm 113$, o en el intervalo 
+de 151 cm a 177 cm.
+
+### Gráfica de dispersión de ajuste y residuales
+
+Ahora podemos comparar cuánta variación de los datos está explicada por la
+tesitura y cuanta se absorbe en los residuales. Dos escenarios extremos son: 1)
+los individuos dentro de cada grupo no varían, pero las medias de los grupos
+son diferentes, y 2) las medias de los grupos no cambian y todos los individuos
+varían alrededor de esa misma media común.
+
+Una forma eficiente de hacer esta comparación es graficando, lado a lado, los
+cuantiles de los valores ajustados y de los residuales. Centramos los valores
+ajustados por la media general para poder comparar mejor:
+
+```{r, fig.height = 3.2, fig.width = 5}
+library(tidyr) 
+
+# primero agrupamos por tesitura para calcular el valor ajustado (meida de 
+# grupo) y el residual (media - estatura)
+singer_ajuste <- singer %>%
+  group_by(voice.part) %>%
+  mutate(
+    ajustado = mean(estatura.m), 
+    residual = estatura.m - ajustado 
+  ) %>%
+  ungroup() %>% # desagrupamos para centrar por media general
+  mutate(
+    id = 1:nrow(singer),
+    ajustado.c = ajustado - mean(ajustado)
+  )
+
+singer_ajuste
+
+# creamos un data.frame alargado con las variables que queremos graficar
+singer_ajuste_long <- singer_ajuste %>%
+  select(id, ajustado.c, residual) %>%
+  gather(variable, valor, ajustado.c, residual)
+  
+singer_ajuste_long
+
+# y calculamos los cuantiles
+singer_ajuste_cuant <- singer_ajuste_long %>%
+  group_by(variable) %>%
+  arrange(valor) %>%
+  mutate(
+    n = n(),
+    valor.f = (1:n[1] -0.5)/n[1]
+  ) 
+
+ggplot(singer_ajuste_cuant, aes(x = valor.f, y = valor)) +
+  geom_point() +
+  facet_wrap(~ variable)
+```
+
+Es así que una gráfica de dispersión de residuales y ajustados consiste en 
+dos gráficas de cuantiles, construidas con la misma escala. En una de ellas se
+grafican los valores ajustados centrados por la media general, y en el otro los 
+residuales.
+
+Comparamos estas dos gráficas para ver cuánta de la variación en los datos se 
+explica mediante el modelo que ajustamos, y cuánta se queda en los residuales. 
+También es útil leer los cuantiles de los residuales en esta gráfica.
+
+### Las 4 R's del análisis exploratorio
+
+Tukey creó una lista de cuatro R's para sus métodos del análisis exploratorio 
+donde describe cuatro aspectos fundamentales:
+
+<div class="caja">
+* __Resistencia__: deben estar basados en técnicas resistentes a datos atípicos y
+comportarse bien cuando ocurren otros tipos de no-normalidad.
+
+* __Revelar__: deben mostrar unequívocamente lo esperado o usual, y ser capaces
+de mostrar claramente patrones novedosos o inesperados en los datos.
+
+* __Residuales__: deben proceder eliminando variación identificada y examinando
+los residuales que resultan. Si podemos identificar variación en los residuales,
+la eliminamos e iteramos nuevamente.
+
+* __Reexpresión__: los datos no siempre esrán dados en las unidades más 
+convenientes para su análisis o visualización, y muchas veces es necesario
+reexpresarlos de alguna forma.
+</div>
+
+Ya hemos discutido que los conjuntos de datos reales requieren métodos 
+resistentes para su exploración (más adelante discutiremos métodos de 
+suavizamiento resistentes), y también hemos visto que gráficas y resúmenes 
+simples pueden revelar con claridad hasta los aspectos más sutiles de varios 
+conjutos de datos.
+
+El ejemplo de los cantantes es la sección anterior fue el primer encuentro con
+residuales. La idea de los residuales, resumiendomm es identificar fuentes de
+variación, eliminarlas, y analizar los residuales resultantes buscando otras
+fuentes de variación adicionales: en cada paso simplificamos el problema al 
+eliminar fuentes de variación conocida. Como vimos, la idea general es escribir 
+
+<center> Valor observado = Valor ajustado + Residual </center>
+
+y analizar los residuales resultantes. Todo esto lo hacemos en un proceso 
+iterativo de ajuste-exploración-resumen.
+
+### Transformaciones
+
+Como hemos visto, hay una gran variedad de formas que se pueden observar en 
+conjuntos de datos reales (multimodales, colas largas, etc.). Muchas veces es
+posible simplificar la estructura de variación en los datos transformados con 
+una función simple, lo que hace mucho más fácil el análisis y la descripción.
+
+Una familia útil de transformaciones es la siguiente:
+
+<div class="caja">
+La **familia de transformaciones de Box Cox** con parámetro $p$ se define como:
+
+$$
+\begin{equation}
+  T_p(x)=\begin{cases}
+    \frac{x^p-1}{p}, & \text{si $p \ne 0$}.\\
+    log(x), & \text{si $p = 0$}.
+  \end{cases}
+\end{equation}
+$$
+</div>
+
+En la práctica podemos usar simplemente $x \to x^p$, pues el reescalamiento y
+desplazamiento adicional no cambian la forma de la distribución de los datos, 
+sólo su dispersión y tendencia central. Generalmente no es necesario usar 
+transformaciones más complejas que las de Cox-Box, al menos en la parte 
+exploratoria.
+
+### El logaritmo
+
+Consideremos los datos de cuentas de un restaurante, clasificadas según sea una
+pareja o un grupo de 3 o más personas. Intentamos primero hacer algo similar a 
+lo que hicimos con los cantantes:
+
+```{r}
+tips_grupo <- tips %>%
+  filter(size > 1) %>%
+  mutate(tipo_grupo = ifelse(size == 2, "Pareja", "Grupo"))
+
+# vemos el tamaño de cada grupo
+table(tips_grupo$tipo_grupo)
+```
+
+Comenzamos considerando la distribución de los valores dentro de cada grupo:
+
+```{r, fig.height=3.2, fig.width = 5.5}
+tips_cuantiles <- tips_grupo %>%
+  group_by(tipo_grupo) %>%
+  arrange(total_bill) %>%
+  mutate(
+    n = n(),
+    valor_f = (1:n[1] - 0.5) / n[1], 
+    qnorm_gpo = qnorm(valor_f)
+  )
+tips_cuantiles
+
+ggplot(tips_cuantiles, aes(x = valor_f, y = total_bill)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ tipo_grupo) +
+  labs(title = "Gráfica de cuantiles")
+
+
+ggplot(tips_cuantiles, aes(x = qnorm_gpo, y = total_bill)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ tipo_grupo) +
+  labs(title = "Gráfica de cuantiles normales")
+```
+
+<div class="clicker">
+1. ¿La aproximación normal es razonable?  
+a. Sí.  
+b. No.  
+
+2. La gráfica es:  
+a. Simétrica.  
+b. Sesgada a la derecha.  
+c. Sesgada a la izquierda.
+
+3. Las medianas son:
+a. Similares.  
+b. Mayor para parejas.  
+c. Mayor para grupos.
+
+4. ¿Qué grupo presenta mayor variación?
+a. Similar en ambos.  
+b. Mayor para parejas.  
+c. Mayor para grupos.
+</div>
+
+Los datos están sesgados hacia valores grandes que ocurren comunmente.
+
+<div class="caja">
+**Sesgo a la derecha.** En análisis es común encontrar conjuntos de datos 
+sesgados, esto representa varios problemas:
+
+* Problemas de visualización: cuando el sesgo es severo, la mayor parte de la 
+gráfica se destina a la variación de unos pocos datos. El resto se aplasta en 
+regiones chicas de la gráfica.
+
+* Es más complicado describir datos sesgados: además de la tendencia central y 
+la dispersión, hay que describir el sesgo.
+
+* No es posible utilizar métodos usuales con base en la distribución normal.
+</div>
+
+Otro aspecto común es que los grupos con valores más grandes varían más, podemos
+observar esto en la siguiente gráfica:
+
+```{r, fig.width=3.5, fig.height=3.5}
+ggplot(tips_grupo, aes(x = tipo_grupo, y = total_bill)) +
+  geom_boxplot() +
+  geom_jitter(alpha = 0.5)
+```
+
+En este caso, la variación que encontramos en el grupo *Grupo* parece ser del
+doble que en el grupo *Pareja*.
+
+<div class="caja">
+**Dispersión monótona.** Los conjuntos de datos sesgados muchas veces presentan
+dispersión monótona: grupos de datos con valores más grandes presentan más 
+dispersión que grupos de datos con valores chicos. Esto acarrea problemas 
+similares a los discutidos arriba:
+
+* Problmeas de visualización: cuando el sesgo es severo, la mayor parte de la 
+gráfica se destina a la variación de unos pocos datos. El resto se aplasta 
+en regiones chicas de la gráfica.
+
+* Es más complicado describir los datos con dispersión monótona: en este caso 
+no es posible hacer *pooling** de la dispersión de los grupos.
+</div>
+
+Estos dos problemas (sesgo y dispersión monótona) generalmente vienen juntos, y
+usualmente pueden corregirse transformando los datos. Por ejemplo, si aplicamos
+el logaritmo a los datos, obtenemos:
+
+```{r, fig.height=3.2, fig.width = 5.5}
+ggplot(tips_cuantiles, aes(x = valor_f, y = total_bill)) + 
+  geom_point() + 
+  facet_wrap(~ tipo_grupo) + 
+  stat_smooth(method=lm) + 
+  labs(title='Gráfica de cuantiles') + 
+  scale_y_log10(breaks = c(4, 8, 16, 32, 64))
+
+ggplot(tips_cuantiles, aes(x = qnorm_gpo, y = total_bill)) + 
+  geom_point() + 
+  facet_wrap(~ tipo_grupo) + 
+  stat_smooth(method=lm) + 
+  labs(title='Gráfica de cuantiles normales') + 
+  scale_y_log10(breaks = c(4, 8, 16, 32, 64))
+```
+
+```{r, fig.width = 3.5, fig.height = 3.5}
+ggplot(tips_grupo, aes(x = tipo_grupo, y = total_bill)) +
+  geom_boxplot() +
+  geom_jitter() +
+  scale_y_log10(breaks = c(4, 8, 16, 32, 64))
+```
+
+Y observamos que tanto el sego como la dispersión monótona han desaparecido.
+Entonces, la ventaja de esta transformación es que podemos obtener una 
+descripción eficiente y clara de estos datos. La desventaja potencial es que 
+tenemos que trabajar con el logaritmo de los datos.
+
+Ahora revisaremos que, en efecto, los residuales agrupados describen 
+razonablemente bien a los residuales de cada grupo. Nótese que como antes, 
+usamos el logaritmo para todo nuestro análisis.
+
+```{r, fig.height=3.2, fig.width = 5.5}
+# agregamos columnas de valores ajustados y residuales
+tips_ajuste <- tips_cuantiles %>%
+  mutate(
+    total_ajustado = mean(log10(total_bill)), 
+    total_residual = log10(total_bill) - total_ajustado
+    )
+tips_ajuste
+# ordenamos los residuales a total (es decir ignorando los grupos)
+todos_residual <- sort(tips_ajuste$total_residual)
+# creamos los cuantiles a total (interpolando) que compararemos con cada grupo
+tips_ajuste_cuantil <- tips_ajuste %>%
+  arrange(total_residual) %>%
+  mutate(
+    n_obs = n(),
+    cuantil_total = approx(x = 1:length(todos_residual), y = todos_residual, 
+      n = n_obs[1])$y    
+  )
+tips_ajuste_cuantil 
+
+ggplot(tips_ajuste_cuantil, aes(x = cuantil_total, y = total_residual)) + 
+  geom_point() +
+  facet_wrap(~tipo_grupo, nrow=1) +
+  geom_smooth(method = "lm")
+```
+
+Donde vemos que los residuales agrupados describen razonablemente bien los 
+residuales de cada grupo. La distribución de residuales en el grupo *Grupo* 
+tiene colas más cortas y dos posibles valores muy bajos que podríamos investigar
+(son dos cuentas de casi la misma cantidad 10.34 y 10.33).
+
+¿Podemos describir la variación de los residuales agrupados con una distribución
+normal? La aproximación no es tan buena como en el ejemplo anterior pero aún 
+es razonable. En este caso vemos una distorsión, un pico de densidad hacia el 
+percentil 15%).
+
+```{r, fig.width=3.5, fig.height=3.5, echo = FALSE}
+tips.5 <- arrange(ungroup(tips_ajuste_cuantil), total_residual)
+n <- nrow(tips.5)
+tips.5$valor.f.tot <- (seq(1,n)-0.5)/n
+tips.5$q.norm.tot <- qnorm(tips.5$valor.f.tot)
+ggplot(tips.5, aes(x=q.norm.tot, y=total_residual)) +
+geom_point() +
+stat_smooth(method=lm)
+```
+
+Ahora observamos la gráfica de dispersión de ajustados y residuales, donde 
+observamos que aún cuando eliminamos el efecto de tipo de grupo, resta variación
+considerable en los residuales: es decir, tipo de grupo explica relativamente
+poco en la variación de las cantidades de las cuantes de este restaurante.
+
+![](imagenes/ajuste.png)
+
+
+### Ejemplo: ventas
+En este ejemplo consideramos las ventas en unidades realizadas en los viernes
+de tres años para cada estado (estos son datos reales). Comenzamos haciendo 
+diagramas de caja y brazos (hay más de 1000 observaciones para cada estado):
+
+```{r, eval = FALSE}
+load(file = './datos/ventas.Rdata')
+ventas_viernes <- filter(ventas, diadesem = 'vie')
+
+# ordenamos los estados de acuerdo a la mediana de ventas
+ventas_viernes$edo <- reorder(as.character(ventas_viernes$edo), 
+  ventas_viernes$trans1, median, na.rm=TRUE) 
+
+ggplot(ventas_viernes, aes(x=edo, y = trans1)) +
+  geom_boxplot(outlier.size = 1) +
+  coord_flip()
+```
+
+![](imagenes/boxplots.png)
+
+Notamos que el sesgo es severo, y los distintos estados varían a lo largo de 
+distintos órdenes de magnitud. Un efecto indeseable de este hecho es que el 
+espacio en la gráfica es absorbido por unos cuantos puntos de datos, y la mayor 
+parte de la variación de la mayoría de los estados se aplasta y no se puede
+apreciar.
+
+Podemos ver que la solución no es quitar los estados grandes para poder ver los
+demás, pues sucede lo mismo a la siguiente escala de magnitud.
+
+```{r, eval = FALSE}
+ventas_sub <- filter(ventas_viernes, !(edo %in% c('DF', 'México', 'Jalisco'))) ventas_sub$edo <- reorder(as.character(ventas_sub$edo), ventas_sub$trans1, 
+  median, na.rm = TRUE)
+ggplot(ventas.sub, aes(x = edo, y = trans1)) +
+  geom_boxplot(outlier.size = 1) +
+  coord_flip()
+```
+
+![](imagenes/boxplots2.png)
+  
+¿Qué pasa si transformamos a logaritmo? Esperamos que la varianza se estabilice 
+a lo largo de los grupos, y que la asimetría se reduzca, y así es:
+
+```{r, eval = FALSE}
+ggplot(ventas_sub, aes(x = edo, y = log(trans1))) +
+  geom_boxplot(outlier.size = 1) +
+  coord_flip()
+```
+
+![](imagenes/boxplots3.png)
+
+Notamos que las distribuciones se ven más homogéneas, no vemos asociación entre
+mediana y dispersión, y aunque todavía resta algo de asimetría, es muchi menor 
+que en los datos no reexpresados. La razón de esta asimetría es que en este 
+caso particular, algunas semanas las ventas experimentan choques particulares 
+que las incrementan por encima de la media (es decir, hace falta considerar
+otro factor importante que tiende a hacer las ventas mayores en algunos días).
+
+Cuando usamos logaritmo es posible seguir la siguiente interpretación:
+
+<div class="caja">
+La diferencia de dos cantidades $x$ y $x + \Delta x$ en escala logarítmica es:
+
+$$log(x+ \Delta x) - log(x) = log\big(\frac{x + \Delta x}{x}\big) = 
+log\big(1 + \frac{\Delta x}{x}\big)$$
+
+Cuando la diferencia relativa $\frac{\Delta x}{x}$ es cercana a cero, tenemos
+la aproximación de primer orden:
+
+$$log\big(1 + \frac{\Delta x}{x}\big) \approx \frac{\Delta x}{x},$$
+
+de modo que diferencias chicas en la escala logarítmica (logaritmo natural con
+valor absoluto menor a 0.4) se interpretan como aproximaciones a las diferencias
+relativas de las dos cantidades.
+</div>
+
+En la siguiente gráfica podemos ver que la recta es una buena aproximación para
+valores chicos:
+
+```{r, fig.width=3, fig.height=3.5}
+identidad <- function(x){x}
+curve(log(1+x), from=-1/2,to=1/2, xlim=c(-0.6,0.6), ylim=c(-0.6,0.6)) 
+curve(identidad, from=-1/2, to=1/2, col="red", add=TRUE)
+```
+
+Por ejemplo, en la gráfica de ventas de arriba la mediana está alrededor de 10
+unidades, y el cuarto inferior alrededor de 9.75. Esto quiere decir que la 
+mediana es aproximadamente 0.25=25% más grande que el cuarto inferior, o que el
+cuarto inferior es aproximadamente el 75% de la mediana. Para diferencias más
+grandes, por ejemplo de una unidad esta regla no funciona bien.
+
+Para complementar, es útil recordar que diferencias de una unidad hacia arriba
+representan incrementos relativos de un poco más de 70%, y decrementos de una
+unidad representan decrementos relativos de un poco más de -60%. Dos unidades
+positivas en escala logarítmica representan incrementos de un poco más de 600%
+y dos negativas decrementos de -85%.
+
+En el caso de Campeche, la gráfica indica entonces que el cuartil superior es 
+alrededor de 70% veces más grande que la mediana.
+
+Podemos verificar estas aproximaciones:
+
+```{r, eval = FALSE}
+ventas.campeche <- subset(ventas.1, edo == "Campeche")
+cuantiles.camp <- quantile(ventas.campeche$trans1)
+cuantiles.camp[4]/cuantiles.camp[3]
+# 2.719
+cuantiles.camp[2]/cuantiles.camp[3]
+# 0.7023
+```
+
+### Referencias
+* Willam S. Cleveland, Visualizing Data, Hobart Press, 1994.
+
+* Hyndman y Fan. Sample quantiles in statistical packages, The American 
+Statistician, 1996.
+
+* B.D. Ripley, Robust Statistics, 2004.
+
+* David W. Scott, Multivariate Density Estimation, Wiley & Sons, 1992.
+
+* John W. Tukey y Frederick Mosteller, Data Analysis and Regression, 
+Addison-Wesley, 1977.
+
+* Izenman y Sommer, Philatelic mixtures and multimodal densities, Journal of the
+American Statistical Association, 1998.

@@ -1,0 +1,335 @@
+---
+title: "Datos bivariados"
+author: "Felipe González"
+output:
+  html_document:
+    css: ../estilos/cajas.css
+    theme: spacelab
+---
+
+```{r setup, include = FALSE}
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+knitr::opts_chunk$set(comment=NA, fig.align="center")
+options(digits = 3)
+source("../codigo/tema_ggplot.R")
+```
+
+### Matrices de gráficas de dispersión
+
+Una manera de analizar más de dos variables numéricas es mediante *matrices de 
+gráficas de dispersión*, esta técnica nos permite considerar las relaciones
+entre cada par de variables.
+
+En el siguiente ejemplo consideramos los datos de *Iris* de Fisher (la 
+información fue recolectada por el botanista Edgar Anderson en los años treinta).
+El objetivo detrás de la recolección de los datos era cuantificar la variación
+geográfica de un tipo de flores. La base de datos contiene 4 mediciones: ancho 
+y largo de pétalos y sépalos, para 50 especímenes de tres especies distintas de
+flores (iris setosa, iris virginica e iris versicolor).
+
+```{r, fig.height = 7}
+library(GGally) # aquí esta la función para hacer la matriz
+head(iris)
+ggpairs(data = iris, # data.frame with variables
+  columns=1:4, # columns to plot, default to all, 
+  upper = list(continuous = 'points'))
+```
+
+Este tipo de gráfica da una mirada rápida que muestra posibles asociaciones
+interesantes entre todas las variables que consideramos. 
+
+### Covarianza y correlación
+Covarianza y correlación son mediadas de asociación lineal entre dos mediciones. 
+Si las mediciones $x$ y $y$ son $(x_1,y_1),(x_2,y_2),...,(x_n,y_n)$ entonces
+la *covarianza* entre estas dos mediciones es:
+
+$$s_{x,y}^2=\frac{1}{n-1}\sum_{i=1}^n(x_i-\mu_x)(y_i-\mu_y)$$
+
+donde $\mu_x$ y $\mu_y$ son las medias de las mediciones correspondientes. La 
+*correlación* es:
+
+$$\rho_{x,y}=\frac{s_{x,y}^2}{s_x s_y}$$
+
+donde $s_x$ y $s_y$ son las desviaciones estándar dadas por:
+
+$$s_x = \sqrt{\frac{1}{n-1}\sum_{i=1}^n(x_i-\mu_x)^2}$$
+
+Nótese que la correlación es la covarianza de las *variables estandarizadas*, y
+que ambas medidas son simétricas respecto a $x$ y $y$. Se puede demostrar que 
+$-1\le\rho_{x,y}\le 1$ (usando la desigualdad de Cauchy-Schwarz).
+
+En general es más fácil interpretar la correlación, pues no depende de las 
+unidades de medición. En primer lugar, la relación entre mediciones con 
+correlación cercana a 1 o -1 puede describirse bien mediante una recta (los 
+datos siguen el patrón de una recta y los residuales son chicos). Valores
+cercanos a 1 inidican que las mediciones tienden a moverse en la misma dirección
+(linealmente) a lo largo de los casos, y valores cercanos a -1 señalan que las
+mediciones se mueven en dirección opuesta (cuando una sube, la otra baja), 
+también linealmente. Valores cercanos a cero indican que no hay una relación 
+lineal clara.
+
+```{r, fig.height = 3.3, fig.width = 6.6}
+set.seed(40827834)
+# correlación cercana a uno
+x_1 <- rnorm(300)
+y_1 <- x_1 + 0.2 * rnorm(300)
+cor(x_1, y_1)
+plot_1 <- qplot(x_1, y_1) + geom_smooth(method = "lm")
+
+# correlación positiva alrededor de 0.7
+x_2 <- rnorm(300)
+y_2 <- x_2 + rnorm(300)
+cor(x_2, y_2)
+plot_2 <- qplot(x_2, y_2) + geom_smooth(method = "lm")
+
+grid.arrange(plot_1, plot_2, ncol = 2)
+```
+
+```{r, fig.height = 3.3, fig.width = 9.9}
+# correlación cercana a 0.3
+x_1 <- rnorm(300)
+y_1 <- x_1 + 3 * rnorm(300)
+cor(x_1, y_1)
+plot_1 <- qplot(x_1, y_1) + geom_smooth(method = "lm")
+
+# correlación positiva alrededor de -0.7
+x_2 <- rnorm(300)
+y_2 <- - x_2 + rnorm(300)
+cor(x_2, y_2)
+plot_2 <- qplot(x_2, y_2) + geom_smooth(method = "lm")
+
+# correlación cercana a cero
+x_3 <- rnorm(300)
+y_3 <- 0* x_3 + rnorm(300)
+cor(x_3, y_3)
+plot_3 <- qplot(x_3, y_3) + geom_smooth(method = "lm")
+
+grid.arrange(plot_1, plot_2, plot_3, ncol = 3)
+```
+
+Vemos que la pendiente de las rectas ajustadas depende tanto de la correlación 
+como de la dispersión entre $x$ y $y$. No obstante, la correlación es invariante
+a transformaciones lineales de las variables.
+
+```{r, include = FALSE}
+x_2 <- rnorm(300)
+y_2 <- - x_2 + rnorm(300)
+cor(x_2, y_2)
+cor(3 * x_2, y_2)
+cor(3 * x_2 + 10, y_2)
+```
+
+Es importante tener cuidado en la interpretación. En el siguiente ejemplo, la
+correlación es cercana a cero, sin embargo una variable determina a la otra.
+
+```{r, fig.width=3.3, fig.height=3.3}
+x <- rnorm(300)
+y <- x ^ 2
+cor(x, y)
+qplot(x, y)
+```
+
+Correlaciones para los iris: para el ejemplo de los iris, podemos calcular 
+$4*3/2$ correlaciones distintas. Ponemos estos datos en una matriz:
+
+$\rho$      |Sepal.Length |Sepal.Width |Petal.Length |Petal.Width
+------------|-------------|------------|-------------|------------
+Sepal.Length|1.00         |-0.12       |**0.87**     |**0.82**    
+Sepal.Width |-0.12        |1.00        |**-0.43**    |**-0.37**    
+Petal.Length|**0.87**     |**-0.43**   |1.00         |**0.96** 
+Petal.Width |**0.82**     |**-0.37**   |**0.96**     |1.00
+
+Esta matriz se llama *matriz de correlaciones*. 
+
+¿Cuándo usar correlación y covarianza en el análisis exploratorio? Como estas 
+medidas no son resistentes, y por el hecho de que su interpretación es difícil, 
+generalmente preferimos no usarlas cuando exploramos; sin embargo, cuando la
+asociación entre dos variables es claramente lineal pueden ser resúmenes 
+efectivos.
+
+## Asociación entre variables categóricas.
+
+La *tabla de contingencias* es la manera usual de presentar mediciones 
+categóricas conjuntas. Abajo presentamos una tabla con las variables color de
+ojos y de pelo, las observaciones corresponden a 592 estudiantes de estadística.
+En cada celda ponemos el número de observaciones en el conjunto de datos que 
+corresponden a las categorías de renglón y de columna.
+
+.        |Castaño | Azúl   | Miel | Verde | Total
+---------|--------|--------|------|-------|------
+Negro    | 68     | 20     | 15   | 5     | 108
+Castaño  | 119    | 84     | 54   | 29    | 286
+Rojo     | 26     | 17     | 14   | 14    | 71
+Rubio    | 7      | 94     | 10   | 16    | 127
+**Total**| 220    | 215    | 93   | 64    | 592
+
+Buscamos entender si hay asociación lineal entre las dos variables categóricas. 
+El problema con la tabla de arriba es que no se pueden hacer comparaciones de 
+las columnas y los renglones de manera fácil.
+
+Calculamos las distribuciones condicionales de color de pelo dada cada categoría
+de color de ojos (dividiendo cada celda por el total de observaciones en la 
+columna correspondiente):
+
+.        |Castaño | Azúl   | Miel | Verde | Total
+---------|--------|--------|------|-------|------
+Negro    | 0.31   | 0.09   | 0.16 | 0.08  | 0.18
+Castaño  | 0.54   | 0.39   | 0.58 | 0.45  | 0.48
+Rojo     | 0.12   | 0.08   | 0.15 | 0.22  | 0.12
+Rubio    | 0.03   | 0.44   | 0.11 | 0.25  | 0.21
+**Total**| 220    | 215    | 93   | 64    | 592
+
+
+Hemos dejado la última fila con el número de casos por columna (más adelante 
+explicaremos por qué). En esta última tabla es fácil comparar cualquier par de 
+columnas. El primer tipo de comparación es el de la distribución condicional
+del color de pelo dada una categoría versus la distribución total de color de 
+pelo (última columna). También podemos comparar columnas que corresponden a 
+distintas categorías de color de ojos.
+
+Cuando no existe asociación fuerte entre las dos variables categóricas,
+esperaríamos que cada una de las columnas fuera parecida a la columna de total.
+Claramente no es el caso con esta tabla, donde vemos que el color de ojos azúl
+esta asociado con pelo rubio y el color de ojos castaño con pelo negro, por
+ejemplo.
+
+Dividiendo cada proporción de cada categoría de ojos x pelo entre la proporción
+total para el color de pelo correspondiente obtenemos momios (o índices si se 
+multiplican por 100) que a veces son más fáciles de leer:
+
+.        |Castaño | Azúl   | Miel   | Verde 
+---------|--------|--------|--------|-------
+Negro    |**1.69**|**0.51**| 0.88   | 0.43  
+Castaño  | 1.12   | 0.81   |**1.20**| 0.94  
+Rojo     | 0.99   |**0.66**|**1.26**|**1.82**  
+Rubio    |**0.15**|**2.04**|**1.50**| 1.17  
+**Total**| 220    | 215    | 93     | 64    
+
+Esta tabla se interpreta de la siguiente forma: en nuestra muestra, alguien que 
+tiene los ojos azules tiene el doble de probabilidad de tener el pelo rubio que
+alguien de la muestra total. También podemos calcular que la probabilidad de que 
+alguien que tiene los ojos azúles tiene pelo rubio es 2.04/0.15 = 13 veces la 
+probabilidad de que alguien que tiene ojos castaños tenga pelo rubio.
+
+En resumen, vemos una asociación clara entre ojos castaños y pelo negro y 
+castaño,  entre ojos azules y pelo rubio, y también entre ojos verdes y cabello
+rojo. Podemos marcar con colores las diferencias notables entre entre las 
+distribuciones condicionales de cada color de ojos y la distribución total de 
+color de ojos (por ejemplo marcando índices por arriba de 1.20 y por abajo de
+0.80). 
+
+**Observaciones:**
+
+1. Recordemos que por ahora solo estamos describiendo los datos. Que la 
+asociación que encontramos en esta tabla realemente exista en la población total
+se requiere de otras consideraciones de la inferencia estadística (por ejemplo, 
+tenemos que saber, por ejemplo, cómo se recolectaron los datos y en particular, 
+cómo se seleccionó a las personas de la muestra). A pesar de estar describiendo 
+la muestra debemos ser cuidadosos, vale la pena observar que cuando tenemos 
+columnas con muy pocas observaciones debemos ser cautelosos con las conclusiones
+que obtenemos de nuestro análisis: por ejemplo, si la columna de color de ojos 
+verdes tuviera 10 observaciones no convendría guiarse mucho por la forma de la 
+distribución condicional de esa columna.
+
+2. El análisis se puede hacer también comparando las condicionales dados los
+distintos colores de pelo. Cuando pensamps que una variable es la respuesta y la
+otra es el factor entonces conviene condicionar en los valores del factor. En el
+ejemplo de arriba, estamos considerando el color de ojos como el factor y el
+color de pelo como la respuesta (aunque en este ejemplo no hay razón para 
+hacerlo así).
+
+3. Podemos entender la tabla de momios en términos de evaluación de ajuste y 
+residuales de un modelo. Sea $n_{ij}$ la cantidad de observaciones en la celda
+$i,j$, $n_i=\sum_j n_{ij}, n^j=\sum_i n_{ij}$ y $n=\sum_{i,j} n_{ij}$.
+Calculamos las distribuciones condicionales dada la variable de las columnas 
+como $n_{ij}/n^j$. La distribución marginal de la variable en los renglones es
+$n_i/n$. Entonces la tabla de cocientes esta dada por:
+$$r_{ij}=\frac{n_{ij}/n^j}{n_i/n}$$
+y analizamos las desviaciones de estas cantidades alrededor de 1. Cuando todas 
+estas cantidades son cercanas a 1, las marginales son iguales a la marginal 
+(que interpretamos como independencia). Tomando logaritmo de la ecuación 
+anterior, y reacomodadndo llegamos a,
+$$\log(n_{ij})=\log(\bigg(\frac{n_i n_j}{n}\bigg)) + \epsilon_{ij},$$
+que también se puede escribir como 
+$$\log(n_{ij})=-\log(n) + \log(n_i) + \log(n_j) + \epsilon_{ij},$$
+que aclara la naturaleza del modelo: el observado es igual a un egecto general 
+mas un efecto de los renglones, más un efecto de las columnas y mas un residual.  
+Los residuales $\epsilon_{ij}$ nos indican desviaciones de la celdas a partir 
+del modelo de independencia: residuales positivos grandes quiere decir que en la
+celda correspondiente hay más casos de los que uno esperaría si las variables
+fueran independientes. Aunque podemos usar estos residuales para hacer análisis
+es más común usar los cocientes (que son el exponencial de los residuales).
+
+Podemos analizar la relación entre más variables categóricas usando tablas de 
+dimensión más alta.
+
+<img src="imagenes/ucb_adm.png" style="width:300px" align="middle">
+
+Las tablas de frecuencias totales y proporciones por columna podrían sugerir que
+los hombres que solicitan tienen mayor probabilidad de entrar a la univesidad:
+
+<img src="imagenes/ucb_hm.png" style="width:270px" align="middle">
+
+donde vemos que es 0.45/0.30=1.47 veces más probable que un hombre del conjunto 
+de los solicitantes haya sido aceptado que una mujer.
+
+Sin embargo, las tasas de aceptación por departamento son muy distintas:
+
+<img src="imagenes/ucb_tasas.png" style="width:360px" align="middle">
+
+Podemos hacer dos tablas separadas por hombres y mujeres para comparar las tasas
+de aceptación de cada departamento_
+
+<img src="imagenes/ucb_sep.png" style="width:410px" align="middle">
+
+y aquí no vemos ningún sesgo claro hacia la acpetación de hombre, en todo caso, 
+el departamento A parecería tener un sesgo en favor de las mujeres.
+
+**Paradoja de Simpson.** El ejemplo anterior ilustra la paradoja de Simpson: la 
+relación entre dos variables tienen una forma dentro de cada grupo, pero cuando
+agrupamos esta forma se invierte. Esto es difícil de pensar si pensamos en 
+términos de caudalidad pero no tan misterioso si pensamos (más correctamente) en
+términos de asociación.
+
+En nuestro ejemplo, probabilidad de aceptación y sexo están asociados: un hombre
+tiene mayor probabilidad de ser aceptado que una mujer. Sin embargo, no hay una
+relación de causalidad directa entre estas dos variables: una razón de tasas 
+bajas para las mujeres es, por ejemplo, que no están solicitando entrar en los
+departamentos a los que es fácil entrar (A y B).
+
+Otro ejemplo relacionado con esta paradoja se puede ver cuando examinamos la 
+correlación entre longitud de pétalo y ancho de sépalo en el ejemplo de iris. 
+En este caso obtuvimos una correlación negativa, pero la situación cambia si 
+examinamos cada especie por separado.
+
+```{r, fig.width=3.5, fig.height=3.3}
+# a total
+ggplot(iris, aes(x = Sepal.Width, y = Petal.Length)) +
+  geom_point() + 
+  geom_smooth()
+# separando por grupo
+ggplot(iris, aes(x = Sepal.Width, y = Petal.Length, color = Species)) +
+  geom_point() + 
+  geom_smooth()
+```
+
+Podemos examinar mejor cada especie si estandarizamos cada una de las variables
+dentro de cada grupo, donde confirmammos que la relación es positiva y similar 
+dentro de cada especie, una vez que escalamos a los tamaños de cada una.
+
+```{r, fig.width=3.5, fig.height=3.3}
+iris_scale <- iris %>%
+  group_by(Species) %>%
+  mutate(
+    Sepal.Width.z = scale(Sepal.Width)[, 1], 
+    Sepal.Length.z = scale(Sepal.Length)[, 1]
+    )
+
+ggplot(iris_scale, aes(x = Sepal.Width.z, y = Sepal.Length.z, color = Species)) +
+  geom_point() + 
+  geom_smooth()
+```
+

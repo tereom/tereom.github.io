@@ -1,0 +1,736 @@
+---
+title: "Datos univariados y su distribución"
+author: "Felipe González"
+output:
+  html_document:
+    css: ../estilos/cajas.css
+    theme: spacelab
+---
+
+
+Comencemos repasando algunos conceptos de la clase anterior.
+
+<div class="clicker">
+1. En una gráfica de barras de frecuencias relativas, ¿Cuál es la suma de la 
+altura de las barras?
+
+a. Menos de uno.  
+b. Más de uno.  
+c. Igual a uno.  
+d. No se puede saber (con la información dada). 
+
+2. En un histograma, ¿Cuál es la suma de la altura de las barras?
+
+a. Menos de uno.  
+b. Más de uno.  
+c. Igual a uno.  
+d. No se puede saber (con la información dada). 
+</div>
+
+
+## Histogramas
+
+<div class="caja">
+Los **histogramas** son gráficas de barras que se obtienen a partir de tablas de
+frecuencias, donde cada barra se escala según la frecuencia relativa entre el
+ancho del intervalo de clase correspondiente.
+</div>
+
+Esta propiedad de los histogramas implica que la suma de las áreas de las barras
+en un histograma siempre es uno (pues las frecuencias relativas siempre suman
+uno). Para entender por que hacer este escalamiento, supongamos que nuestros 
+datos $x_1,...,x_n$ son $n$ observaciones de una variable aleatoria continua
+con densidad de probabilidad continua $f$. Para cualquier intervalo chico $I$
+de longitud $\Delta$ tenemos que:
+
+$$P(X \in I) = \int_I f(x)dx \approx m(I)\Delta$$
+
+donde $m(I)$ es el valor promedio de $f(x)$ en $I$. Según la interpretación
+frecuentista de la probabilidad, la frecuencia relativa $N(I)/n$ de 
+observaciones $x_1,...,x_n$ que caen en el intervalo $I$ es, para $n$ grande, 
+cercano a $P(X \in I)$. De esta forma, tenemos que:
+
+$$\frac{N(I)}{n\Delta} \approx \frac{P(X \in I)}{\Delta} \approx m(I).$$
+
+De esta manera vemos que si cada barra de la gráfica de barras de frecuencias 
+relativas es escalada por el ancho de su intervalo correspondiente, la nueva
+altura de las barras aproximan el valor promedio de la densidad $f$ en cada uno
+de los intervalos.
+
+Aunque casi nunca sabemos la densidad de donde provienen los datos, esta forma
+de reescalar los histogramas es conveniente porque nos permite comparar 
+fácilmente histogramas de distintos conjuntos de datos.
+
+### Ejemplo: exponencial
+
+Tomamos 1000 observaciones de una variable aleatoria exponencial con parámetro 
+1, graficamos el histograma correspondiente con ancho de intervalos igual a 0.5,
+y finalmente superponemos la función de densidad:
+
+```{r, fig.width=3.7, fig.height=3.7}
+set.seed(72)
+x_sim <- data.frame(id = 1:1000, x = rexp(1000, rate = 1))
+hist(x_sim$x, breaks = seq(0, 9, 0.5), col = "gray", freq = FALSE, main = "") 
+exp_1 <- function(x){ dexp(x, rate = 1) }
+curve(exp_1, add = TRUE, from = 0.05, to = 9,
+    col = "red", lwd = 2, main = "")
+```
+
+Nuestra convención es que llamaremos *histograma* a la gráfica de barras de 
+frecuencias relatvias escaladas por los tamaños de los intervalos. Igual que en
+los diagramas de tallo y hoja o en las gráficas de puntos, en los histogramas 
+buscamos entender alrededor de que valores se agrupan los datos, dispersión,
+forma (simetría, sesgo, colas largas o cortas), evidencia de subgrupos y casos
+atípicos.
+
+```{r, echo=FALSE, eval=FALSE}
+ggplot(x_sim, aes(x = x)) + 
+  geom_histogram(fill = "darkgray", color = "gray", aes(y = ..density..), 
+    breaks = seq(0, 9, 0.5)) +
+  stat_function(data = data.frame(x=seq(0.05, 9, 0.5)), fun = dexp, rate =1, color = "red") 
+```
+
+
+### Ejemplo: inestabilidad de histogramas
+Los histogramas presentan cierta inestabilidad en cuanto a la forma empírica
+que representan. Esto se debe al proceso discreto de su construcción. En el 
+siguiente ejemplo, variamos el punto de inicio de la partición y vemos que en 
+distintos casos las formas representadas pueden ser muy distintas.
+
+```{r, fig.width = 6, fig.height = 3}
+set.seed(28)
+x_sim <- rnorm(80)
+min_x <- min(x_sim)
+max_x <- max(x_sim)
+par(mfcol=c(1,3))
+hist(x_sim, seq(min_x - 0.5, max_x + 0.5, by = 0.4))
+hist(x_sim, seq(min_x - 0.2, max_x + 0.7, by = 0.4))
+hist(x_sim, seq(min_x - 0.4, max_x + 0.9, by = 0.4))
+```
+
+### Ejemplo: histograma con anchos de intervalo variables
+
+Cuando hacemos gráficas de barras de frecuencias relativas, no tiene mucho 
+sentido variar el ancho de los intervalos: por ejemplo, dos gráficas de barras 
+con intervalos variables distintos no son comparables. Adicionalmente, las 
+gráficas resultantes no tienen una interpretación de aproximación a la densidad 
+como tienen los histogramas. En los histogramas anchos variables no representan 
+un problema, pues están normalizados por tales anchos. Con los mismos datos del 
+ejemplo anterior podemos hacer unos ejercicios (en estos casos escogemos anchos 
+al azar).
+
+```{r, fig.width = 5.5}
+set.seed(2872)
+x_sim <- rexp(1000, rate = 1)
+par(mfcol = c(2,2))
+hist(x_sim, breaks = c(0, runif(20, 0, 9), 9), col = "gray", freq = FALSE,
+main ="")
+curve(exp_1, add = TRUE, from = 0.05, to = 9,
+    col = "red", lwd = 2, main = "")
+
+hist(x_sim, breaks = c(0, runif(20, 0, 9), 9), col = "gray", freq = FALSE,
+main ="")
+curve(exp_1, add = TRUE, from = 0.05, to = 9,
+    col = "red", lwd = 2, main = "")
+
+hist(x_sim, breaks = c(0, runif(20, 0, 9), 9), col = "gray", freq = FALSE,
+main ="")
+curve(exp_1, add = TRUE, from = 0.05, to = 9,
+    col = "red", lwd = 2, main = "")
+
+hist(x_sim, breaks = c(0, runif(20, 0, 9), 9), col = "gray", freq = FALSE,
+        main ="")
+curve(exp_1, add = TRUE, from = 0.05, to = 9,
+    col = "red", lwd = 2, main = "")
+```
+
+## Estimaciones de densidad con kernel
+
+Considerando que los histogramas son un tipo de estimación de una densidad
+subyacente (bajo ciertos supuestos), podríamos preguntar qué otros métodos 
+pueden tener mejores características para hacer esta estimación. Un aspecto 
+a mejorar en los histogramas es que la estimación con histogramas siempre se 
+hace mediante funciones escalonadas (así podemos mejorar también la 
+inestabilidad que provee de la posición de los intervalos de clase). En esta
+sección veremos como aproximar la densidad mediante curvas suaves.
+
+Notemos que la estimación de densidad que hacemos en un histograma es una 
+*aproximación local*: para estimar la densidad en un punto $x$ dado, 
+consideramos solamente aquellos datos que están cerca de $x$. La inestabilidad 
+de los histogramas proviene entonces de que el criterio de *cerca* es un 
+criterio discontinuo: existe una frontera dura (el intervalo de clase) que 
+determina cuáles puntos están cerca de $x$ y cuáles no.
+
+
+Podemos resolver el problema de las fronteras duras considerando que cada dato
+debe contribuir a la estimación de la densidad en $x$ de acuerdo a qué tan 
+cercan está tal punto de $x$. El criterio de cercanía está dada por una función
+que llamamos $kernel$:
+
+<div class="caja">
+Un núcleo o *kernel K* es una función de variable real con máximo en 0 y que 
+decae monotónicamente a 0 conforme nos alejamos de 0. Adicionalmente, 
+suponemos que $K$ integra 1 en $(-\infty,\infty)$.
+</div>
+
+Ejemplos comunes de kernel son:
+
+* *Gaussiano:* 
+$$K(t)=\frac{1}{\sqrt{2\pi}}e^{-x^2/2}.$$
+
+* *Bicuadrado* (*biweight* o *bisquare*):
+$$K(t)=\frac{15}{16}(1-t^2)^2I_{[-1,1]}(t).$$
+
+Ahora veamos como se calcula una curva suave usando un kernel. Supongamos que
+$x_1,...,x_n$ son una muestra de datos tomados de una densidad $f$. Tomamos
+como estimador de la densidad $f(x)$ en $x$ a la cantidad:
+
+$$\hat{f}_{smooth}(x) = \frac{1}{nb}\sum_{i=1}^nK\bigg(\frac{x-x_i}{b}\bigg)$$
+
+donde $b$ es el *ancho de banda* $b>0$ y lo definimos con anterioridad. 
+Comparemos esta expresión con el cálculo que hacemos para un histograma. Si 
+$x \in J(x)$, donde $J(x)$ es el intervalo de clase donde cae $x$, tenemos:
+
+$$\hat{f}_{hist}= \frac{1}{n\Delta}\sum_{i=1}^nI_{J(x)}(x_i)$$
+
+donde $I_{J(x)}$ es la función indicadora del intervalo $J(x)$. Notemos que el 
+ancho de banda $b$ es análogo al ancho de los intervalos $\Delta$. La diferencia
+en la primera ecuación es que en lugar de que cada dato aporte 1 o 0 a la
+estimación, cada dato aporta una cantidad que depende de su distancia a $x$:
+aporta más cuanto más cercano esté a $x$. Se puede demostrar con facilidad que
+$\hat{f}_{smooth}$ es una densidad continua (es decir, es continua, no negativa
+e integra a 1).
+
+Con más trabajo es posible demostrar que cuando $n \to \infty$, podemos tomar 
+$b>0$ suficientemente chica de forma que con alta probabilidad 
+$\hat{f}_{smooth}$ esté tan cercana a $f(x)$ como se quiera (ver David W. Scott,
+2004).
+
+#### Ejemplo: Old Faithful
+Para cada conjunto de datos es necesario experimentar para encontrar el rango
+correcto del ancho de banda (ver documentación de la función $density$ en el 
+paquete $stats$ de *R*).
+
+```{r, fig.width = 9, fig.height = 3.2}
+# intentamos 4 anchos de banda distintos
+anchos_banda <- c(0.01, 0.05, 0.3, 0.5)
+
+par(mfrow = c(1, 4))
+for(b in anchos_banda){ 
+  dens <- density(faithful$eruptions, kernel = 'biweight', bw = b)
+  plot(dens, main ="")
+}
+```
+
+### Elección del ancho de banda
+
+Igual que con los histogramas, es necesario experimentar para encontrar un 
+ancho de banda apropiado que muestre la variación a la escala que nos interesa.
+
+Una manera de pensar en la elección del ancho de banda es la siguiente (esta 
+discusión también aplica a la elección del ancho de los intervalos en un 
+histograma).
+
+<div class="caja">
+1. Ancho de banda grande:
+
+  * Promediamos la variación de escala más chica y dejamos de ver estructuras de
+  esta escala chica.
+  
+  * Como estimación de densidad, la curva obtenida tiene sesgo potencial grande,
+  pues datos lejanos a $x$ contribuyen a la estimación (es decir, extrapolamos 
+  más).
+  
+  * La estimación es más estable, pues en cada punto usamos más datos para
+  construirla.
+  
+2. Ancho de banda chico:
+  
+  * Mostramos la variación de los datos en escalas chicas.
+  
+  * Como estimación de densidad, la curva obtenida tiene poco _sesgo_ potencial, 
+  pues los datos contribuyen a la estimación en $x$ están muy cerca de $x$ 
+  (extrapolamos menos).
+  
+  * La estimación es menos estable, pues en cada punto usamos pocos datos para
+  construirla.
+</div>
+
+
+En resumen, desde el punto de vista de estimación de densidad, el ancho de 
+banda controla el balance entre *sesgo* y *varianza* de nuestro estimador de
+la densidad. Ambas partes contribuyen al error de estimación y dependiendo del
+tipo de densidad y el número de datos, distintos balances pueden ser mejores 
+para que el error de estimación sea más bajo (ver David W. Scott, 2004).
+
+Es importante notar que en muchos casos nuestro propósito no necesariamente es
+describir una densidad subyacente, sino simplemente tener una descripción 
+compacta de la distribución que observamos en los datos. En estos casos, de
+cualquier forma, es conveniente pensar en estos términos de sesgo y varianza: 
+generalmente queremos un ancho de banda que muestre características claras en 
+los datos (poco sesgo) pero también que no dependa tanto de aspectos locales
+a escala demasiado chica (poca varianza).
+
+#### Ejemplo: sesgo/varianza
+En este ejemplo buscamos estimar una densidad bimodal (mezcla de normales), 
+mostrada abajo (en rojo). La línea gris muestra, en cada gráfica, las 
+estimaciones de densidad con una muestra de 200 casos, para distintos anchos de
+banda.
+
+```{r, fig.width = 9, fig.height = 3.3}
+set.seed(51)
+num_sim <- 200
+x <- ifelse(runif(num_sim) > 0.2, rnorm(num_sim, 0), rnorm(num_sim, 5))
+anchos_banda <- c(0.01, 0.05, 0.25, 2)
+mezclaDens <- function(x){ 0.8 * dnorm(x, 0) + 0.2*dnorm(x, 5)} 
+
+par(mfrow = c(1, 4))
+for(b in anchos_banda){ 
+  dens <- density(x, kernel = 'biweight', bw = b)
+  plot(dens, main = "", col="gray50")
+  curve(mezclaDens, add = TRUE, col="red", lwd=2)
+}
+```
+
+
+```{r, include = FALSE}
+set.seed(52)
+num_sim <- 200
+x <- ifelse(runif(num_sim) > 0.2, rnorm(num_sim, 0), rnorm(num_sim, 5))
+anchos_banda <- c(0.01, 0.15, 0.25, 2)
+mezclaDens <- function(x){ 0.8 * dnorm(x, 0) + 0.2*dnorm(x, 5)} 
+
+par(mfrow = c(2, 4))
+for(b in anchos_banda){ 
+  dens <- density(x, kernel = 'biweight', bw = b)
+  plot(dens, main = "", col="gray50")
+  curve(mezclaDens, add = TRUE, col="red", lwd=2)
+}
+x <- ifelse(runif(num_sim) > 0.2, rnorm(num_sim, 0), rnorm(num_sim, 5))
+for(b in anchos_banda){ 
+  dens <- density(x, kernel = 'biweight', bw = b)
+  plot(dens, main = "", col="gray50")
+  curve(mezclaDens, add = TRUE, col="red", lwd=2)
+}
+```
+
+Como vemos arriba, si el objetivo es estimar la densidad subyacente, 
+probablemente deberíamos usar un ancho de banda alrededor de $b=0.25$. Anchos 
+de banda más chicos son demasiado ruidosos, mientras que anchos de banda más 
+grandes están más sesgados.
+
+</br>
+
+![](../imagenes/manicule2.jpg) **TAREA:**
+
+1. **Estampillas de Hidalgo.** Construye histogramas y estimadores de densidad 
+con kernel para los datos de 
+estampillas de Hidalgo. Muestra al menos 4 variaciones de cada uno, mostrando
+distintos aspectos de los datos. Escoge un suavizamiento (es decir, un ancho de
+banda y un ancho de intervalo) para contestar la pregunta: ¿cuántos grupos
+distintos de estampillas existen en estos datos?
+
+2. **Ancho de banda y número de observaciones.** Simula dos conjuntos de datos 
+de una variable normal estándar, el primer conjunto
+constará de 50 observaciones y el segundo de 200. ¿Que sugieren estos datos 
+acerca de un ancho de banda apropiado para aproximar la densidad que genera los
+datos? Da un ancho de banda apropiado (que la estimación de kernel esté cercana
+a la verdadera densidad) para cada conjunto de datos. ¿Qué dice esto acerca de
+la relación de un ancho de banda apropiado con el número de datos que tenemos?
+
+
+## Resúmenes numéricos para conjuntos de datos
+En muchos casos es conveniente encontrar resúmenes más concisos de las 
+características (hasta ahora definidas vagamente) de una distribución. Esto
+nos permite dos cosas: concentrar y simplificar el análisis, y poder resumir
+y explicar nuestros hallazgos de manera eficiente. Buscamos entonces indicadores 
+de conceptos como:
+
+* Tendencia central: valores centrales alrededor de los cuales se dispersan los
+datos.
+
+* Dispersión: qué tanto se dispersan los datos alrededor de estos valores 
+centrales.
+
+* Asimetría: qué tanto se dispersan los datos alrededor de estos valores 
+centrales.
+
+* Datos atípicos: valores que caen muy por fuera del rango de la mayor parte de 
+los datos.
+
+#### Medidas resistentes
+
+Hay muchas maneras de definir resúmenes numéricos que satisfagan los propósitos 
+anteriores, y dependiendo del caso es necesario elegir distintas definiciones. 
+En análisis exploratorio, muchas veces requerimos medidas que sean *resistentes*
+: mediadas que, aún cuando hay errores en los datos o valores extremos, sigan 
+funcionando de manera razonable.
+
+<div class="clicker">
+3. ¿Que medida de tendencia central crees que sea más resistente *media* 
+(promedio) o *mediana* (valor de en medio de los datos ordenados)?  
+a. La media.  
+b. La mediana.  
+c. Son igual.  
+</div>
+
+El uso de medidas resistentes es particularmente importante en las primeras 
+etapas del análisis 
+exploratorio de bases de datos grandes, donde por regla general debemos esperar
+lo peor: valores imposibles para algunas variables, errores de captura/edición, 
+valores especiales o faltantes codificados de maneras no explícitas, y, quizá
+los más interesantes, valores correctos que simplemente se alejan de los lugares
+donde la mayoría de los datos se agrupan. En la etapa exploratoria queremos
+describir todas estas particularidades de los datos con los que trabajamos, 
+pero también queremos ir aprendiendo el fenómeno que nos interesa. Las medias
+resistentes nos permiten lograr esto.
+
+El ejemplo más típico y claro de una medida resistente es la *mediana*, que 
+veremos con detalle más adelante. Por ejemplo, en el siguiente conjunto:
+$$1,2,3,4,5,6,7$$
+la mediana (el valor de en medio) es $4$. Si cambiamos uno de los valores, por
+ejemplo:
+$$1,2,3,4,5,6,10000$$
+la mediana sigue siendo $4$. El promedio, en contraste, es una medida no 
+resistente, pues en el primer caso es igual a $4$, mientras que en el segundo 
+está alrededor  de $1,431$. Es claro que el promedio como indicador de 
+tendencia central es sensible a valores atípicos. Incluso en conjuntos de datos
+grandes, incluso en conjuntos de datos grandes, algunos pocos valores muy 
+extremos pueden perturbar tanto el promedio como para convertirlo, si no se 
+toman acciones correctivas, en una medida muy poco útil.
+
+En general, diremos que una medida o un proceso es *resistente* cuando es poco
+afectado por una fracción pequeña de valores atípicos.
+
+#### Valores atípicos
+
+Hay muchas maneras de definir lo que es un valor atípico, vagamente, los valores
+atípicos son sorpresas (B.D. Ripley, 2004) en relación al resto de los datos.
+Esto puede ser por diversas razones, como señalamos arriba: puede ser un error
+de transcripción (un valor atípico debe ser verificado), pero también puede ser 
+un dato correcto que se aleja del patrón general. Los valores atípicos son muy 
+importantes: pueden arruinar el correcto funcionamiento de los métodos 
+estadísticos estándar (como la media del ejemplo de arriba), además es usual que
+sean altamente informativos de la manera en que se recogieron o procesaron los 
+datos, o del mismo fenómeno que estamos estudiando. No es tan raro que el 
+descubrimiento de un valor atípico interesante cambie del todo la forma en 
+que nos aproximamos al fenómeno de estudio, o en un caso más extremo, que nos
+demos cuenta de que hubo tales fallas en la captura y el procesamiento de los
+datos que tenemos que repetir las mediciones o el procesamiento -esto no es 
+tan raro como parecería en un principio, particularmente con base de datos 
+grandes y complejas.
+
+## Medidas de tendencia central
+
+Estos indicadores pretenden establecer valores alrededor de los cuales se 
+localiza la distribución.
+
+<div class="caja">
+**Mediana**. La mediana es, aproximadamente el valor central de un conjunto de 
+datos, o el valor que parte los datos a la mitad. La mediana de un conjunto
+de datos de tamaño *n* se calcula encontrando primero 
+
+$$d(M)=(n+1)/2$$
+
+si $d(M)$ es un número entero, entonces la mediana es el $d(M)$-ésimo valor
+en el conjunto de datos, cuando estos se ordenan de manera no-decreciente. Si 
+$d(M)$ tiene parte fraccional (igual a $1/2$), entonces tomamos el promedio del
+$piso(d(M))$-ésimo dato (parte entera de $d(M)$) con el $piso(d(M))+1$ dato.
+
+</div>
+
+Por ejemplo para el conjunto de datos $4,7,10,21,5$, tenemos $n=5$, 
+$d(M)=6/2=3$, así que la mediana es $7$. Para el conjunto de datos $4,7,10,21,5$
+tenemos $n=6$, $d(M)=3.5$, el tercer dato es $7$ y el cuarto $8$, así que la 
+mediana es $(7+8)/2=7.5$
+
+<div class="caja">
+**Media**. La media de un conjunto de datos $x_1,x_2,...,x_n$ está dada por
+$$\bar{x}=\frac{1}{n}\sum_{i=1}^n x_i.$$
+</div>
+
+Para los dos conjuntos de datos del ejemplo anterior tenemos, $\bar{x}=9.4$ en 
+el primer caso y $\bar{x}=9.16$ en el segundo.
+
+<div class="caja">
+**Medias recortadas**. Una medida intermedia entre la mediana y la media es la
+*media recortada*. Si denotamos $G$ al conjunto de datos original, y $p$ un 
+valor entre $0$ y $1$, entonces $G_p$ es el conjunto de datos que resulta de
+$G$ cuando se excluye de $G$ la proporción $p$ de los datos más bajos y la 
+proporción $p$ de datos más altos. La media recortada-$p$ es el promedio de
+los valores en $G_p$.
+</div>
+
+Hay que tener cuidado en cómo se definen estas proporciones, lo discutiremos
+más adelante.
+
+<div class="clicker">
+4. Calcula la media recortada-$1/6$ para el conjunto de datos $4,7,10,21,5,8.$
+</div>
+
+**¿Media, mediana o media recortada?** Como discutimos antes, una ventaja de la
+mediana sobre la media es su resistencia; sin embargo, la mediana tiene la 
+desventaja de no utilizar toda la información contenida en los datos, y esto la
+hace menos eficiente que la media en ciertos problemas de estimación. Tukey y 
+Mosteller (1977) recomiendan usar la mediana para explorar los datos. No 
+obstante, puede ser más práctico usar la media cuando la tradición lo imponga, 
+o en la inferencia cunado existan técnicas más convenientes para las medias, lo
+cuál es usual (siempre y cuando se cumplan las hipótesis necesarias). Al usar 
+la media, siempre hay que verificar la ausencia de valores atípicos importantes,
+y que las distribuciones que consideremos no tengan colas muy pesadas (este 
+último punto se discutirá más adelante). En orden de popularidad, la media es la
+medición más usada, y le sigue la mediana.
+
+**Simetría.** Cuando la media es igual a la mediana decimos que la distribución
+es *simétrica*. Si la media es mayor a la mediana, decimos que hay *sesgo a la
+derecha*, y si la media es menor a la mediana, entonces decimos que hay *sesgo 
+a la izquierda*. Por ejemplo, la distribución exponencial con parámetro $1$ esta
+sesgada a la derecha pues la media es $1$ y la mediana $\log(2)\approx0.69$.
+
+Veamos un ejemplo, los datos $tips$ (incluídos en el paquete $reshape2$ de *R*)
+incluyen información de las cuentas en un restaurante durante dos meses.
+
+```{r, fig.width=4.6, fig.height=3.8}
+library(reshape2)
+#mean(tips$total_bill)
+#median(tips$total_bill)
+plot(density(tips$total_bill, bw = 1, from=0), main = "")
+```
+
+<div class="clicker">
+5. En los datos de *cuentas* la distribución:  
+a. es simétrica.  
+b. tiene sesgo a la derecha.  
+c. tienes sesgo a la izquierda.  
+</div>
+
+**Moda, subgrupos de datos.** En una distribución, una *moda* es un máximo local 
+de su histograma o densidad aproximada (que depende del nivel de suavizamiento 
+que escogimos -para conjuntos de datos las modas no están definidas con 
+precisión). Generalmente, interpretamos las modas de una distribución como el
+efecto de la formación de grupos de alguna clase (recordar el ejemplo de las
+erupciones de géiser). Cuando la moda es única, decimos que la distribución es
+*unimodal*, y *multimodal* si se encuentra evidencia de múltiples modas que
+están en conjuntos disconexos (es decir, no contamos partes *planas* de la
+distribución).
+
+Cuando la distribución es unimodal y aproximadamente simétrica, la moda también
+se puede interpretar más fácilmente como una medida de tendencia central.
+
+## Medidas de dispersión o escala
+
+Al igual que la tendencia central, el concepto de *dispersión* se puede 
+cuantificar de distintas maneras. Empezamos por definir:
+
+**Cuartos:** un conjunto de datos tiene dos cuartos que señalan, 
+aproximadamente, por debajo de cuál valor está una cuarta parte de los datos, 
+y por arriba de que valor está un cuarto de los datos. Para calcular los dos 
+cuartos ponemos:
+
+$$d(C)=(piso(d(M)) + 1)/2.$$
+
+El cuarto inferior se calcula entonces igual que la mediana, contando $d(C)$
+datos del valor más chico hacia arriba, y el cuarto superior contando $d(C)$
+datos a partir del valor más grande hacia abajo. De manera similar 
+(recursivamente) se pueden definir los octavos, dieciseisavos, etc.
+
+**Ejemplo:** Consideremos el conjunto de datos mostrado abajo. El tamaño es
+$n=21$, así que $d(M)=11$, y la mediana es $329$. Ahora calculamos 
+$d(C)=(piso(11)+1)/2=6$, de modo que el cuarto inferior es $228$ y el cuarto
+superior es $476$. De la misma manera calculamos octavos que son:
+$(130+192)/2=161$ y $(569+527)/2=548$.
+
+![](imagenes/ejemplo_cuartos.png)
+
+<div class="clicker">
+1. Calcula los cuartos de los siguientes dos conjuntos de datos, (ambos de 
+tamaño 20):
+```{r, echo=FALSE}
+set.seed(221285)
+x <- rnorm(20, 150, 10)
+y <- rnorm(20, 100, 18)
+print(sort(x), digits = 5)
+print(sort(y), digits = 4)
+```
+
+¿Que conjunto presenta mayor dispersión? 
+a. El primero  
+b. El segundo  
+c. Igual  
+</div>
+
+Estas medidas son conceptualmente claras y fáciles de calcular, más adelante
+veremos algunas variaciones.
+
+Usando el concepto de cuartos podemos definir una medida de de dispersión:
+cuanto más separados estén los dos cuartos, por ejemplo, mayor dispersión 
+en los datos.
+
+**Amplitud o rango intercuantil:** se calculan tomando la diferencia de cuartos,
+octavos, etc., y nos referimos a ellas como amplitud-1/4, amplitud-1/8, etc. En
+el ejemplo anterior tenemos que la amplitud-1/4 es igual a $476-228=248$, y la
+amplitud-1/8 es igual a $548-161=387$.
+
+. |Inf|Sup|Amplitud
+-|---|---|--------
+Mediana|329|329|  
+Cuartos|228|476|248
+Octavos|161|548|387
+
+<div class="caja">
+**Resumen de cinco números de Tukey.** El resumen de cinco números de Tukey de
+un conjunto de datos consiste en:  
+<center>mínimo, cuarto inferior, mediana, cuarto superior, máximo </center>
+que captura, a grandes rasgos el centro de la distribución del conjunto, su
+dispersión, asimetría, y la posible existencia de valores atípicos.
+</div>
+
+**Ejemplo:** consideramos nuevamente la base de datos de cuentas y propinas.
+Los resúmenes de cinco números son:
+
+```{r}
+resumen_cuenta <- fivenum(tips$total_bill)
+names(resumen_cuenta) <- c('min','cuarto.inf','mediana','cuarto.sup', 'max')
+resumen_tips <- fivenum(tips$tip)
+names(resumen_tips) <- c('min','cuarto.inf','mediana','cuarto.sup', 'max')
+resumen_cuenta
+resumen_tips
+```
+
+**Desviación estándar y desviación absoluta media.** Estas son dos medidas de 
+dispersión basadas en promedios de mediciones de la desviación a partir de
+la media.
+
+<div class="caja">
+La **desviación absoluta media** de conjunto de datos $x_1,...,x_n$ con media
+$\bar{x}$ es:
+$$\frac{1}{n}\sum_{i=1}^n\vert x_i-\bar{x}\vert$$
+</div>
+
+La desviación absoluta media es una medida natural pero difícil de tratar 
+analíticamente. Una alternativa más conveniente para le teoría (pero más
+difícil de interpretar) es la desviación estándar *muestral*:
+
+<div class="caja">
+La **desviación estándar muestral** de conjunto de datos $x_1,...,x_n$ con media
+$\bar{x}$ es:
+$$s=\sqrt{\frac{1}{n-1}\sum_{i=1}^n(x_i-\bar{x})^2}.$$
+</div>
+
+Nótemos que las unidades de $s$ y de la desviación absoluta son las mismas que 
+las del conjunto de datos, y que ninguna de estas medidas es resistente.
+Algebráicamente, la desviación estándar es superior al *spread* de cuartos, 
+octavos, etc. y a la desviación absoluta media.
+
+Notemos también que arriba dividimos entre $n$ y $n-1$. En la práctica, hay 
+poca diferencia entre dividir entre $n$ y $n-1$, pero usamos esta última por
+tradición, y porque si consideramos el conjunto de datos como una muestra de
+observaciones de una variable aleatoria $X$, entonces $s^2$ es un estimador
+insesgado de la varianza de $X$. Cuando se divide entre $n$, es común llamar
+al resultado *desviación estándar poblacional*. Cuando usamos un paquete o 
+calculadora vale la pena entender cuál de las dos es la que se está usando.
+
+```{r}
+sd(tips$tip)
+sqrt(sum((tips$tip - mean(tips$tip))^2)/(length(tips$tip) - 1))
+```
+
+**Interpretación de la desviación estándar.** En general, la desviación estándar
+no es fácil de interpretar. Cuando los datos son aproximadamente normales 
+(algo que discutiremos más adelante), podemos usar la regla del $68%$ y $95%:$
+
+  * Alrededor del $68%$ de los datos están a 1 desviación estándar de la media.
+  Es decir, un intervalo centrado en la media de ancho dos desviaciones estándar
+  cubre casi el $70%$ de los casos.
+  
+  * Alrededor del $95%$ de los datos están a 2 desviaciones estándar de la media.
+  Es decir, es poco usual que haya datos más allá de 2 desviaciones de la media.
+  
+#### Ejemplo: normal y exponencial
+
+Veamos como cubren las desviaciones estándar con una muestra de tamaño $200$ 
+de una distribución normal:
+
+```{r}
+set.seed(2273283)
+
+# creamos un vector con 200 simulaciones de una normal (media 5 y desv. est. 2)
+x_norm <- rnorm(200, 5, 2)
+# calculamos la desviación estándar y la media
+d_est_norm <- sd(x_norm)
+d_est_norm
+
+media_norm <- mean(x_norm)
+media_norm
+
+# contamos cúantos valores están a una (y dos) desviación estándar
+x_1de_norm <- (x_norm > media_norm - d_est_norm) & 
+  (x_norm < media_norm + d_est_norm)
+x_2de_norm <- (x_norm > media_norm - 2 * d_est_norm) & 
+  (x_norm < media_norm + 2 * d_est_norm)
+
+mean(x_1de_norm)
+mean(x_2de_norm)
+```
+
+Pero esto puede estar lejos de cierto para datos con distribuciones muy 
+distintas a la normal (y también para muestras chicas):
+
+```{r}
+# creamos un vector con 200 simulaciones de una exponencial (tasa 2)
+x_exp <- rexp(500, 2)
+# calculamos la desviación estándar y la media
+d_est_exp <- sd(x_exp)
+d_est_exp
+
+media_exp <- mean(x_exp)
+media_exp
+
+# contamos cúantos valores están a una (y dos) desviación estándar
+x_1de_exp <- (x_exp > media_exp - d_est_exp) & 
+  (x_exp < media_exp + d_est_exp)
+x_2de_exp <- (x_exp > media_exp - 2 * d_est_exp) & 
+  (x_exp < media_exp + 2 * d_est_exp)
+
+mean(x_1de_exp)
+mean(x_2de_exp)
+```
+
+Otra medida de útil de dispersión (relativa) es el coeficiente de variación, 
+usualmente definido para conjuntos de datos positivos.
+
+<div class="caja">
+El **coeficiente de variación** está definido por:
+$$CV=s/\bar{x}$$
+</div>
+
+El coeficiente de variación, en contraste con las medidas que hemos visto hasta
+ahora, es una cantidad sin dimensión (pues media y desviación estándar tienen 
+las mismas unidades). Es una medida de dispersión relativa a la magnitud 
+promedio de los datos. Se interpreta como una proporción, por ejemplo:
+
+```{r}
+cuentas <- tips$total_bill
+media <- mean(cuentas)
+s <- sd(cuentas)
+s/media
+```
+
+<div class="clicker">
+6. Supongamos que la base de datos de propinas tenemos dos columnas tips_dollar
+que consiste en las propinas en dólares y tips_cents que consiste en las 
+propinas en centavos, ¿Cómo se compara la desviación estándar de estas bases?  
+a. Es igual  
+b. Es mayor en centavos  
+c. Es mayor en dólares  
+
+7. ¿Cómo se compara el coeficiente de variación?  
+a. Es igual  
+b. Es mayor en centavos  
+c. Es mayor en dólares  
+</div>
+
+<!--
+As the coefficient of variation is unit-free, so also it is dimension-free, as whatever units or dimensions are possessed by the underlying variable are washed out by the division. That makes the coefficient of variation a measure of relative variability, so the relative variability of lengths may be compared with that of weights, and so forth. One field where the coefficient of variation has found some descriptive use is the morphometrics of organism size in biology.
+
+-->

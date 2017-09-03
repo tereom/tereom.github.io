@@ -1,0 +1,408 @@
+---
+title: "Datos bivariados"
+author: "Felipe González"
+output:
+  html_document:
+    css: ../estilos/cajas.css
+    theme: spacelab
+---
+
+```{r setup, include = FALSE}
+library(MASS)
+library(dplyr)
+library(tidyr)
+library(gridExtra)
+knitr::opts_chunk$set(comment=NA, fig.align="center")
+#options(digits = 4)
+source("../codigo/tema_ggplot.R")
+```
+
+### Transformación para enderezar relaciones
+Cuando consideramos la relación entre dos variables cuantitativas, muchas 
+veces es posible transformar las variables para obtener una relación más 
+simple y fácil de describir.
+
+#### Ejemplo: desemepeño de CPUs
+Utilizamos una base de datos de desemepeño de CPUs incluída en el paquete 
+*MASS*, nos concentramos en dos variables: cuanto tarda un ciclo del 
+procesador en nanosegundos ($syct$) y un índice de desempeño ($estperf$).
+
+```{r, fig.width=3.8, fig.height=3.5}
+library(MASS)
+ggplot(cpus, aes(x= syct, y = estperf)) +
+  geom_point(size = 1.2) +
+  geom_smooth(method = "loess", family = "symmetric", span = 0.4)
+```
+
+La relación entre estas dos variables es claramente inversa. Veamos los 
+residuales para explorar si persiste una relación entre los residuales y la 
+variable $syct$ y para ver si el supuesto de homogeneidad es razonable en estos 
+datos.
+
+```{r, fig.width=7.5, fig.height=3.5}
+ajuste_loess_cpu <- loess(perf ~ syct, cpus, family = "symmetric", span = 0.2)
+cpus$residual <- ajuste_loess_cpu$residual
+cpus$ajustado <- ajuste_loess_cpu$fitted
+
+residual_syct <- ggplot(cpus, aes(x = syct, y = residual)) +
+  geom_point(size = 1.2) +
+  geom_smooth(method = "loess", family = "symmetric", span = 1)
+residual_ajuste <- ggplot(cpus, aes(x = ajustado, y = sqrt(abs(residual)))) +
+  geom_point(size = 1.2) +
+  geom_smooth(method = "loess", family = "symmetric", span = 1)
+
+grid.arrange(residual_syct, residual_ajuste, ncol = 2)
+```
+
+Notamos que los residuales son considerablemente heterogéneos. Intentamos con 
+una transformación: aplicamos logaritmo a la respuesta (perf).
+
+```{r, fig.width=3.8, fig.height=3.5}
+ggplot(cpus, aes(x= syct, y = log(estperf))) +
+  geom_point(size = 1.2) +
+  geom_smooth(method = "loess", family = "symmetric", span = 0.4)
+```
+
+Y repetimos el análisis de residuales.
+
+```{r, fig.width=7.5, fig.height=3.5}
+ajuste_loess_log_cpu <- loess(log(perf) ~ syct, cpus, family = "symmetric", 
+  span = 0.2)
+cpus$residual_log <- ajuste_loess_log_cpu$residual
+cpus$ajustado_log <- ajuste_loess_log_cpu$fitted
+
+residual_syct_log <- ggplot(cpus, aes(x = syct, y = residual_log)) +
+  geom_point(size = 1.2)+
+  geom_smooth(method = "loess", family = "symmetric", span = 1)
+residual_ajuste_log <- ggplot(cpus, aes(x = ajustado_log, 
+    y = sqrt(abs(residual_log)))) +
+  geom_point(size = 1.2) +
+  geom_smooth(method = "loess", family = "symmetric", span = 1)
+
+grid.arrange(residual_syct_log, residual_ajuste_log, ncol = 2)
+```
+
+Notamos nuevamente que la relación entre *syct* y *perf* es inversa, quizá 
+podemos transformar el factor *syct* en un intento de enderezar y simplificar
+esta relación, con el fin de obtener un modelo más simple. Usamos el inverso de 
+*cyst*. Observemos que ya corregimos en buena parte la heterogeneidad de los
+residuales. Esta transformación, en cambio, tiene el propósito de enderezar la
+relación entre $y$ y $x$.
+
+```{r, fig.width=3.8, fig.height=3.5}
+cpus$m_cycles_sec <- 1000 * (1 / cpus$syct) # millones de ciclos por segundo
+ggplot(cpus, aes(x = m_cycles_sec, y = log(perf))) +
+  geom_point(size = 1.2) +
+  geom_smooth(method = "loess", family = "symmetric", degree = 1, span = 0.7)
+```
+
+Nótese que el inverso de *syct* es simplemente el número de ciclos por 
+nanosegundo. Vemos también que la nueva relación es practicamente lineal.
+
+<div class="caja">
+Transformar un *factor* puede servir para enderezar o 
+simplificar una relación bivariada.
+</div>
+
+En nuestro caso, tomando el inverso de nanosegundos por ciclo simplificamos la
+dependencia desempeño con este factor. Podemos revisar homogeneidad de 
+residuales (obtenemos una gráfica muy similar a la que obtuvimos antes de 
+transformar el factor).
+
+```{r, fig.width=7.5, fig.height=3.5}
+ajuste_loess_trans <- loess(log(perf) ~ m_cycles_sec, cpus, family = "symmetric", 
+  span = 0.2)
+cpus$residual_trans <- ajuste_loess_trans$residual
+cpus$ajustado_trans <- ajuste_loess_trans$fitted
+
+residual_syct_trans <- ggplot(cpus, aes(x = m_cycles_sec, y = residual_trans)) +
+  geom_point(size = 1.2) +
+  geom_smooth(method = "loess", family = "symmetric", span = 1)
+residual_ajuste_trans <- ggplot(cpus, aes(x = ajustado_trans, 
+    y = sqrt(abs(residual_trans)))) +
+  geom_point(size = 1.2) +
+  geom_smooth(method = "loess", family = "symmetric", span = 1, degree = 1,
+    se = FALSE)
+
+grid.arrange(residual_syct_trans, residual_ajuste_trans, ncol = 2)
+```
+
+Observamos que la dispersión es más homogénea (aunque para los cpus de peor
+desempeño la dispersión es un poco más baja), vemos también una consecuencia 
+deseable: *la relación entre respuesta y factor puede ahora describirse 
+razonablemente mediante una línea recta.*
+
+## Series de tiempo
+Podemos usar el suavizamiento loess para entender y describir el comportamiento
+de series de tiempo, en las cuales intentamos entender la dependencia de una
+serie de mediciones indexadas por el tiempo. Típicamente es necesario utilizar 
+distintas *componentes* para describir exitosamente una serie de tiempo, y para
+esto usamos distintos tipos de suavizamientos. Veremos que distintas
+*componentes* varían en distintas escalas de tiempo (unas muy lentas, cono la
+tendencia, otras más rapidamente, como variación quincenal, etc.).
+
+En el siguiente ejemplo consideramos la ventas semanales de un producto a lo 
+largo de 5 años. Veamos que existe una tendencia a largo plazo (crecimientos
+anuales) y también que existen patrones de variación estacionales.
+
+```{r, fig.width=5.5, fig.height = 3}
+ventas <- read.csv("./datos/ventas_semanal.csv")
+head(ventas)
+ggplot(ventas, aes(x = period, y = sales.kg)) + geom_line(size = 0.3)
+```
+
+Intentaremos usar suavizamiento para capturar los distintos tipos de variación
+que observamos en la serie. En primer lugar, si suavizamos poco (por ejemplo
+$\aplha = 0.1$), vemos que capturamos en parte la tendencia y en parte la 
+variación estacional.
+
+```{r, fig.width=5.5, fig.height = 3}
+ggplot(ventas, aes(x = period, y = log(sales.kg))) +
+  geom_line(size = 0.3) +
+  geom_smooth(method = "loess", span = 0.1, degree = 1, se = FALSE, size = 1, 
+    color = "red")
+```
+
+Es mejor comenzar capturando la tendencia, y poco de la componente estacional:
+
+```{r, fig.width=5.5, fig.height = 3}
+ggplot(ventas, aes(x = period, y = log(sales.kg))) +
+  geom_line(size = 0.3) +
+  geom_smooth(method = "loess", span = 0.3, degree = 1, se = FALSE, size = 1, 
+    color = "red")
+
+ajuste.trend.1 <- loess(log(sales.kg) ~ period, ventas, span = 0.3, degree = 1)
+ventas$trend.1 <- ajuste.trend.1$fitted
+ventas$res.trend.1 <- ajuste.trend.1$residuals
+```
+
+Ahora calculamos los residuales de este ajuste e intentamos describirlos 
+mediante un suavizamiento más fino. Verificamos que hemos estimado la mayor
+parte de la tendencia, e intentamos capturar la variación estacional de los 
+residuales.
+
+```{r, fig.width=5.5, fig.height = 3}
+ggplot(ventas, aes(x = period, y = res.trend.1)) +
+  geom_line(size = 0.3) +
+  geom_smooth(method = "loess", span = 0.15, degree = 1, se = FALSE, size = 1, 
+    color = "red")
+
+ajuste.est1.1 <- loess(res.trend.1 ~ period, ventas, span = 0.15, degree = 1)
+ventas$est1.1 <- ajuste.est1.1$fitted
+ventas$res.est1.1 <- ajuste.est1.1$residuals
+```
+
+Y graficamos los residuales obtenidos después de ajustar el componente 
+estacional para estudiar la componente de mayor frecuencia.
+
+```{r, fig.width=5.5, fig.height = 3}
+ggplot(ventas, aes(x = period, y = res.est1.1)) +
+  geom_line(size = 0.3) +
+  geom_smooth(method = "loess", span = 0.06, degree = 1, se = FALSE, size = 1, 
+    color = "red")
+
+ajuste.est2.1 <- loess(res.est1.1 ~ period, ventas, span = 0.06, degree = 1)
+ventas$est2.1 <- ajuste.est2.1$fitted
+ventas$res.est2.1 <- ajuste.est2.1$residuals
+```
+
+Ahora que tenemos nuestra primera estimación de cada una de las componentes, 
+podemos regresar a hacer una mejor estimación de la tendencia. La ventaja de 
+volver es que ahora podemos suavizar más sin que en nuestra muestra compita
+tanto la variación estacional. Por tanto podemos suavizar menos:
+
+```{r, fig.width=5.5, fig.height = 3}
+ventas$sales.sin.est.1 <- log(ventas$sales.kg) - ajuste.est1.1$fitted - 
+  ajuste.est2.1$fitted
+
+ggplot(ventas, aes(x = period, y = sales.sin.est.1)) +
+  geom_line(size = 0.3) +
+  geom_smooth(method = "loess", span = 0.08, degree = 1, se = FALSE, size = 1, 
+    color = "red")
+
+ajuste.trend.2 <- loess(sales.sin.est.1 ~ period, ventas, span = 0.08, degree = 1)
+ventas$trend.2 <- ajuste.trend.2$fitted
+ventas$res.trend.2 <- log(ventas$sales.kg) - ventas$trend.2
+```
+
+Y ahora nos concentramos en la componente anual.
+
+```{r, fig.width=5.5, fig.height = 3}
+ventas$sales.sin.est.2 <- log(ventas$sales.kg) - ajuste.trend.2$fitted -
+  ajuste.est2.1$fitted
+ggplot(ventas, aes(x = period, y = sales.sin.est.2)) +
+  geom_line(size = 0.3) +
+  geom_smooth(method = "loess", span = 0.2, degree = 2, se = FALSE, size = 1, 
+    color = "red")
+
+ajuste.est1.2 <- loess(sales.sin.est.2 ~ period, ventas, span = 0.15, degree = 1)
+ventas$est1.2 <- ajuste.est1.2$fitted
+ventas$res.est1.2 <- ajuste.est1.2$residuals
+```
+
+Finalmente volvemos a ajustar la componente de frecuencia más alta:
+
+```{r, fig.width=5.5, fig.height = 3}
+ventas$sales.sin.est.3 <- log(ventas$sales.kg) - ajuste.trend.2$fitted -
+  ajuste.est1.2$fitted
+
+ggplot(ventas, aes(x = period, y = sales.sin.est.3)) +
+  geom_line(size = 0.3) +
+  geom_smooth(method = "loess", span = 0.06, degree = 1, se = FALSE, size = 1, 
+    color = "red")
+
+ajuste.est2.2 <- loess(sales.sin.est.3 ~ period, ventas, span = 0.06, degree = 1)
+ventas$est2.2 <- ajuste.est2.2$fitted
+ventas$res.est2.2 <- ajuste.est2.2$residuals
+```
+
+Verificamos nuestra descomposición y visualizamos el ajuste:
+
+```{r, fig.width = 5.5, fig.height = 7}
+ventas$log.sales <- log(ventas$sales.kg)
+ventas.2 <- dplyr::select(ventas, period, trend.2, est1.2, est2.2, res.est2.2, 
+  log.sales)
+max(abs(apply(ventas.2[, 2:4], 1, sum) - ventas.2$log.sales))
+
+ventas.2.m <- gather(ventas.2, componente, valor, -period)
+
+ventas.2.m.c <- ventas.2.m %>%
+  group_by(componente) %>%
+  mutate(
+    valor.c = valor - mean(valor)
+  )
+
+ggplot(ventas.2.m.c, aes(x = period, y = valor.c)) +
+  geom_vline(x = c(0, 52 - 1, 52 * 2 - 1, 52 * 3 - 1, 52 * 4 - 1), color = "gray") +
+  geom_line(size = 0.3) +
+  facet_wrap(~ componente, ncol = 1)
+```
+
+Y vemos que es razonable describir los residuales con una distribución normal 
+(con desviación estándar alrededor de 8% sobre el valor ajustado):
+
+```{r, fig.width=3.6, fig.height=3.6}
+sd(ventas$res.est2.2)
+ventas.ord <- arrange(ventas, res.est2.2)
+ventas.ord$q.normal <- qnorm((1:nrow(ventas) - 0.5) / nrow(ventas))
+ggplot(ventas.ord, aes(x = q.normal, y = res.est2.2)) +
+  geom_point(size = 1.2) +
+  geom_smooth(method = "lm")
+```
+
+Aún no estamos convencidos de que podemos hacer *pooling* de los residuales. 
+Para checar esto, vemos la gráfica de dependencia de residuales.
+
+```{r, fig.width=5.5, fig.height = 3}
+ggplot(ventas, aes(x = period, y = res.est2.2)) + geom_line(size = 0.3) + 
+  geom_point(size = 1.2)
+```
+
+¿Puedes notar alguna dependencia en los residuales?
+
+```{r, fig.width=10, fig.height = 7}
+library(nullabor)
+ventas.res <- dplyr::select(ventas, period, res.est2.2)
+ventas.null <- lineup(null_dist(var = 'res.est2.2', dist = 'normal', 
+  params = list(mean = 0, sd = 0.08)), n = 10, ventas.res)
+
+ggplot(ventas.null, aes(x = period, y = res.est2.2)) +
+  facet_wrap(~ .sample, ncol = 2) + 
+  geom_line(size = 0.3) +
+  geom_vline(x = c(0, 52 - 1, 52 * 2 - 1, 52 * 3 - 1, 52 * 4 - 1), color = "gray") + 
+  geom_point(size = 1.2) 
+```
+
+Hay dos cosas que nos falta explicar, en primer lugar, las caídas alrededor de
+principios/finales de cada año (que son de hasta -0.2), y segundo que esta 
+gráfica parece oscilar demasiado. La estructura que aún no hemos explicado se
+debe a que las semanas que caen en quincena tienden a tener compras más 
+grandes que las que están justo antes de quincena o fin de mes.
+
+Por el momento detendremos el análisis aquí y explicamos un proceso iterativo
+para proceder en nuestro análisis exploratorio:
+
+<div class="caja">
+**Iterando ajuste de loess.** Cuando queremos ajustar con tres componentes: 
+  tendencia, estacionalidad y residuales, podemos seguir el siguiente proceso,
+
+1. Ajustar la primera componente a los datos (tendencia).
+
+2. Ajustar la segunda componente a los residuales del paso anterior 
+(estacionalidad).
+
+3. Restar de los datos originales la segunda componente ajustada 
+(estacionalidad).
+
+4. Ajustar a los residuales del paso anterior una nueva componente (tendencia).
+
+5. Restar a los datos originales la componente ajustada en el paso anterior.
+
+6. Ajustar a los residuales del paso anterior una nueva componente 
+(estacionalidad).
+
+7. Checar ajuste y si es necesario iterar de 3 a 6 con las nuevas componentes.
+</div>
+
+La idea es que cada componente compite para explicar los datos (cada una gana
+más al bajar el parámetro $\alpha$). El conflicto es que si suavizamos mucho
+cada componente (por ejemplo la tendencia), entonces parte de la variación 
+que debería ir en ella queda en los residuales, y se intenta ajustar 
+posteriormente por una componente distinta (estacionalidad). Sin embargo, si 
+suavizamos poco, entonces parte de la variación de la segunda componente es
+explicada por el ajuste de la primera. Entonces, la solución es ir poco a poco
+adjudicando variación a cada componente. En nuestro ejemplo de arriba, podemos
+comenzar suavizando de menos el primer ajsute de la tendencia, luego ajustar
+estacionalidad, restar a los datos originales esta estacionalidad, y ajustar a
+estos datos una componente más suave de tandencia. Es posible suavizar más la
+tendencia justamente porque ya hemos eliminado una buena parte de la
+estacionalidad.
+
+Ahora, si vemos como se comportan los residuales según el día donde comienza la
+semana, vemos el patrón que explicamos antes:
+
+```{r, fig.width = 4, fig.height=3.8}
+dat.tot <- read.csv(file = "./datos/cereal_tot.csv")
+head(dat.tot)
+ventas.day <- inner_join(ventas, dplyr::select(dat.tot, period, day))
+
+ggplot(ventas.day, aes(x = day, y = res.est2.2)) +
+  geom_point() +
+  ylab("residual") +
+  geom_smooth(method = "loess", span = 0.06, degree = 1, se = FALSE, size = 1, 
+    color = "red")
+```
+
+Podemos hacer un ajuste loess con estos residuales:
+
+```{r, fig.width=5.5, fig.height = 3}
+ajuste.quincenas <- loess(res.est2.2 ~ day, data = ventas.day)
+ventas$quincena <- ajuste.quincenas$fitted
+ventas$res.final <- ajuste.quincenas$residuals
+sd(ventas$quincena)
+sd(ventas$res.final)
+
+ggplot(ventas, aes(x = period, y = res.final)) +
+  geom_line(size = 0.3) +
+  geom_point(size = 1.2)
+```
+
+```{r, fig.width = 5.5, fig.height = 7}
+ventas.2 <- dplyr::select(ventas, period, trend.2, est1.2, est2.2, quincena, 
+  res.final, log.sales)
+max(abs(apply(ventas.2[, 2:4], 1, sum) - ventas.2$log.sales))
+
+ventas.2.m <- gather(ventas.2, componente, valor, -period)
+
+ventas.2.m.c <- ventas.2.m %>%
+  group_by(componente) %>%
+  mutate(
+    valor.c = valor - mean(valor)
+  )
+
+ggplot(ventas.2.m.c, aes(x = period, y = valor.c)) +
+  geom_vline(x = c(0, 52 - 1, 52 * 2 - 1, 52 * 3 - 1, 52 * 4 - 1), color = "gray") +
+  geom_line(size = 0.3) +
+  facet_wrap(~ componente, ncol = 1)
+```
+

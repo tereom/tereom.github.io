@@ -1,0 +1,287 @@
+---
+title: "Datos bivariados"
+author: "Felipe González"
+output:
+  html_document:
+    css: ../estilos/cajas.css
+    theme: spacelab
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(comment=NA, fig.align="center")
+#options(digits = 4)
+source("../codigo/tema_ggplot.R")
+```
+
+En la clase anterior discutimos un algoritmo loess para suavizar, sin embargo, 
+la versión que estudiamos no es resistente. En esta sección describiremos una
+manera de hacerlo resistente.
+
+### Loess robusto
+
+La técnica de loess robusto es iterativa (como muchos otros métodos 
+exploratorios). Comenzamos definiendo la función *bicuadrado*:
+
+$$
+\begin{equation}
+  B(u)=\begin{cases}
+    (1-|u|^2)^2, & \text{para $|u| < 1$}.\\
+    0, & \text{en otro caso}.
+  \end{cases}
+\end{equation}
+$$
+
+y definimos $s$ como la mediana de los valores absolutos de los residuales 
+$|\epsilon_i|$. A $s$ se le conoce como *desviación mediana absoluta*, y es una
+medida de la dispersión de los residuales. 
+
+Entonces, el ajuste loess $(\alpha, \lambda)$ resistente con el bicuadrado 
+consiste en:
+
+1. Ajustar con los parámetros una curva loess (como en el caso de loess no 
+robusto).
+
+2. Calcular los residuales $\epsilon_i$ y su desviación mediana absoluta $s$. 
+
+3. Caluclar los pesos $r_i$ para la observación $(x_i,y_i)$ como:
+
+$$r_i = B\bigg(\frac{\epsilon_i}{6s}\bigg)$$
+
+4. Reajustamos la curva loess con nuevos pesos dados por $r_iw_i(x)$ donde 
+$w_i(x)$ son los pesos usuales.
+
+5. Recaluclamos los residuales e iteramos hasta que la curva loess con nuevos
+pesos dados por $r_iw_i(x)$ no cambie.
+
+Lo *robusto* del algoritmo se debe a que reduce el peso dado a los puntos muy 
+alejados de la curva de loess ajustada, que pueden tener mucha influencia en el
+ajuste. El factor 6 para la desviación mediana absoluta fue seleccionado para 
+el caso de residuales normales: si los residuales se distribuyen normal 
+estándar, entonces $6s$ es aproximadamente igual a 4, y entonces el 95% de las
+observaciones tienen peso de bicuadrado mayor a 0.56. Casi el 70% de las 
+observaciones tienen bicuadrado mayor a 0.95. De manera que la aproximación de
+mínimos cuadrados no ponderados es similar a la que usa la ponderación del 
+bicuadrado. Cuando el bicuadrado es de mayor utilidad es cuando la distribución 
+de los residuales tiene colas largas (platicúrticas) y con valores atípicos.
+
+#### Ejemplo: múltiples atípicos y loess
+Usaremos un ejemplo con datos de *The Identification of Multiple Outliers* de 
+Laurie Davis y Ursula Gather. Los datos consisten en 2001 observaciones tomadas 
+por un globo a una distancia de alrededor de 30 km sobre la superficie de la 
+Tierra. Estos datos tienen muchos atípicos, para leer más teclea `?balloon` en 
+la consola de R.
+
+Veremos como suavizar estos datos y una posible manera de limpiarlos.
+
+```{r, fig.width=8.6, fig.height = 4}
+library(dplyr) # manipulación de datos
+library(gridExtra) # ordenar salida de gráficas
+library(ftnonpar) # este paquete incluye los datos que nos interesan
+
+data(balloon)
+balloon_df <- data_frame(x = 1:length(balloon), y = balloon)
+head(balloon_df)
+
+balloon_pts <- ggplot(balloon_df, aes(x = x, y = y)) +
+  geom_point(alpha = 0.5, size = 1.2)
+balloon_line <- ggplot(balloon_df, aes(x = x, y = y)) +
+  geom_line(alpha = 0.5)
+
+grid.arrange(balloon_pts, balloon_line, ncol = 2)
+```
+
+```{r, fig.width=10, fig.height = 3.6}
+loess_1 <- ggplot(balloon_df, aes(x = x, y = y)) +
+  geom_point(alpha = 0.5, size = 1) +
+  geom_smooth(method = "loess", span = 1, degree = 1, size = 1.2)
+
+loess_2 <- ggplot(balloon_df, aes(x = x, y = y)) +
+  geom_point(alpha = 0.5, size = 1) +
+  geom_smooth(method = "loess", span = 0.2, degree = 1, size = 1.2)
+
+loess_3 <- ggplot(balloon_df, aes(x = x, y = y)) +
+  geom_point(alpha = 0.5, size = 1) +
+  geom_smooth(method = "loess", span = 0.02, degree = 1, size = 1.2)
+
+grid.arrange(loess_1, loess_2, loess_3, ncol = 3)
+```
+
+Ningún suavizamiento da un ajuste satisfactorio (si viéramos la gráfica de 
+dependencia de residuales). Por su parte el loess robuste se ve como sigue:
+
+
+```{r, fig.width=10, fig.height = 3.6}
+loess_robusto_1 <- ggplot(balloon_df, aes(x = x, y = y)) +
+  geom_point(alpha = 0.5, size = 1) +
+  geom_smooth(family = "symmetric", method = "loess", span = 1, degree = 1, 
+    size = 1.2)
+
+loess_robusto_2 <- ggplot(balloon_df, aes(x = x, y = y)) +
+  geom_point(alpha = 0.5, size = 1) +
+  geom_smooth(family = "symmetric", method = "loess", span = 0.2, degree = 1, 
+    size = 1.2)
+
+loess_robusto_3 <- ggplot(balloon_df, aes(x = x, y = y)) +
+  geom_point(alpha = 0.5, size = 1) +
+  geom_smooth(family = "symmetric", method = "loess", span = 0.02, degree = 1, 
+    size = 1.2)
+
+grid.arrange(loess_robusto_1, loess_robusto_2, loess_robusto_3, ncol = 3)
+```
+
+Ahora podemos marcar datos atípicos potenciales con una regla simple:
+
+```{r, fig.width=8.6, fig.height = 4}
+ajuste_loess_robusto <- loess(y ~ x, data = balloon_df, family = "symmetric", 
+  span = 0.03, degree = 2)
+
+balloon_df$residual <- ajuste_loess_robusto$residual
+
+resid <- ggplot(balloon_df, aes(x, residual)) +
+  geom_point(size = 1, alpha = 0.5)
+
+balloon_df$mayor_10 <- ifelse(abs(balloon_df$residual) < 0.1, FALSE, TRUE)
+
+balloon_resid <- ggplot(balloon_df, aes(x = x, y = y, color = mayor_10)) +
+  geom_point(size = 1)
+
+grid.arrange(resid, balloon_resid, ncol = 2)
+```
+
+
+### Residuales
+El estudio de residuales puede hacerse de manera más detallada, observación 
+por observación, especialmente cuando sospechamos que la variación alrededor 
+del modelo que hemos propuesto se puede explicar con otros factores.
+
+Como ejemplo veamos la relación entre consumo promedio diario de kilocalorías 
+(kcal/persona/día) y proteína (gr/persona/día) en varios países, los datos 
+corresponden a los años 2000-2002 y provienen de la
+[FAO](http://www.fao.org/fileadmin/templates/ess/documents/food_security_statistics/FoodConsumptionNutrients_en.xls)
+
+```{r, fig.width=3.6, fig.height=3.6}
+library(readr)
+dietas <- read_csv("datos/food_nutrients.csv")
+set.seed(5339082)
+dietas <- sample_n(dietas, 90)
+ggplot(dietas, aes(x = energy, y = protein)) +
+  geom_point(size = 1) +
+  geom_smooth(method = "loess", family = "symmetric", span = 0.5)
+```
+
+Podemos agregar etiquetas para interpretar más facilmente.
+
+```{r, fig.width=6, fig.height=5}
+ggplot(dietas, aes(x = energy, y = protein, label = country)) +
+  geom_point(size = 1, color = "red") +
+  geom_smooth(method = "loess", family = "symmetric", span = 0.5, se = FALSE) + 
+  geom_text(alpha = 0.6, size = 3, vjust = 1) + 
+  xlim(c(1500, 4000))
+```
+
+La relación energía y proteína es clara, y es la que esperaríamos (países 
+donde se consume más en promedio se consumen más proteínas en promedio). En 
+este caso es más interesante observar los países que se apartan del patrón 
+general, es decir, la observación en los residuales de los países. Por ejemplo, 
+en Islandia tiene un consumo de proteína muy alto para su consumo de energía. 
+Su posición se opone a la de Bélgica, donde su consumo de proteína es 
+relativamente bajo para su consumo calórico total.
+
+Es posible mejorar esta gráfica cuidando más la posición de las etiquetas 
+(usando el paquete *maptools* que hace recocido simulado para para optimizar
+la posición de las etiquetas).
+
+```{r, fig.width=6, fig.height=5, message=FALSE}
+library(maptools)
+
+etiquetar <- function(df, x, y, etiq = "etiq", size = 3.5){
+  df <- as.data.frame(df)
+  plot(df[, x], df[, y])
+  orden <- pointLabel(df[, x], df[, y], df[, etiq], doPlot = TRUE, 
+    cex = 0.5 * size, xpd = TRUE)
+  dev.off()
+  df$a <- orden$x
+  df$b <- orden$y
+  df
+}
+set.seed(720528)
+dietas_etiq <- etiquetar(dietas, "energy", "protein", etiq = "country", 
+  size = 1)
+```
+
+
+```{r, fig.width=6, fig.height=5}
+ggplot(dietas_etiq, aes(x = energy, y = protein)) +
+  geom_point(size = 1, color = "red") +
+  geom_smooth(method = "loess", family = "symmetric", span = 0.5, se = FALSE) + 
+  geom_text(aes(x = a, y = b, label = country), alpha = 0.6, size = 2.8, 
+    vjust = 1) + 
+  xlim(c(1500, 4000))
+```
+
+Ahora podemos analizar los residuales, verificamos dependencia y dispersión
+homogénea.
+
+```{r, fig.width=7, fig.height=3.6}
+ajuste_loess <- loess(protein ~ energy, dietas, family = "symmetric", span = 0.5)
+dietas$residual <- ajuste_loess$residual
+dietas$ajustado <- ajuste_loess$fitted
+
+resid <- ggplot(dietas, aes(x = energy, y = residual)) +
+  geom_point() +
+  geom_smooth(se = FALSE)
+
+resid_sqrt <- ggplot(dietas, aes(x = ajustado, y = sqrt(abs(residual)))) +
+  geom_point() +
+  geom_smooth(se = FALSE)
+  
+grid.arrange(resid, resid_sqrt, ncol = 2)
+```
+
+Finalmente , investigamos normalidad de los residuales:
+
+```{r, fig.width=3.6, fig.height=3.6}
+dietas_norm <- arrange(dietas, residual)
+dietas_norm$valor_f <- (1:nrow(dietas) - 0.5) / nrow(dietas)
+dietas_norm$q_norm <- qnorm(dietas_norm$valor_f)
+ggplot(dietas_norm, aes(x = q_norm, y = residual)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+Es razonable usar la distribución normal para describir estos datos, aún cuando 
+los países que consumen mucha proteína relativa a su consumo calórico tienden
+a alejarse un poco más de lo que sugeriría una distribución normal. Son 
+Islandia, Kirgistán, Mongolia y Saychelles.
+
+Nuestro resumen final es:
+
+*El consumo mediano de kcal a lo largo de los países es de 2600 kcal y el 
+consumo mediano de proteinas es de unos 70 gr.  
+El consumo de proteinas está relacionaa con el consumo energético total mediante
+la curva mostrada, que implica que aproximadamente aumenta 25gr de proteína 
+cuando el consumo energético aumenta 500 kcal. Los países que menos consumen
+se ubican alrededor de 2000 kcal y unos 50 gr de proteínas, mientras que los
+que más consumen están alrededor de 3750 kcal y más de 110 gr de proteína. 
+La variación de proteína sobre la curva es aproximadamente normal con 
+desviación estándar de 9.4 gramos. Esto quiere decir que la mayoría del consumo
+de proteina en los países (95%) esta a no más de 19 gr de la curva.*
+
+<!--
+### Transformación para enderezar relaciones
+Cuando consideramos la relación entre dos variables cuantitativas, muchas 
+veces es posible transformar las variables para obtener una relación más 
+simple y fácil de describir.
+
+#### Ejemplo: desemepeño de CPUs
+Utilizamos una base de datos de desemepeño de CPUs incluída en el paquete 
+*MASS*, nos concentramos en dos variables: cuanto tarda un ciclo del 
+procesador en nanosegundos ($syct$) y un índice de desempeño ($estperf$).
+
+```{r}
+library(MASS)
+ggplot(cpus, aes(x= syct, y = estperf)) +
+  geom_point(size = 1)
+```
+
+-->

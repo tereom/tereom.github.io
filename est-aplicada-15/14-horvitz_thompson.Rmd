@@ -1,0 +1,334 @@
+---
+title: "Estimador de Horvitz-Thompson"
+author: "Felipe González"
+output:
+  html_document:
+    css: ../estilos/cajas.css
+    theme: spacelab
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(comment=NA, fig.align="center")
+options(digits = 3)
+source("../codigo/tema_ggplot.R")
+```
+
+En estas notas estudiaremos el estimador de Horvitz-Thompson, veremos que es
+insesgado y calularemos su varianza.
+
+#### Ejemplo: consumo de refresco
+Supongamos que tenemos una población de 12 hogares. Queremos estimar el total de
+refrescos consumidos por todas las personas de estos hogares en una semana. 
+Decidimos seleccionar tres al azar de manera equiprobable, y luego (para obtener
+resultados más rapidamente) tomar al azar dos personas de ese hogar y preguntar
+cuantos refrescos se tomó (por simplicidad, supongamos que en cada hogar hay al
+menos dos personas). En este caso, la probabilidad de seleccionar a una persona
+dada de la población es (usando la regla del producto P(AB)=P(B)P(A|B)):
+
+$$\frac{3}{12}\frac{2}{k_i}$$
+
+3/12 es la probabilidad de seleccionar en la muestra a un hogar en particular, 
+$k_i$ es el número de personas que viven en el i-ésimo hogar (donde se 
+selecciona a la persona dada).
+
+Notemos que no es necesario conocer de entrada los valores $k_i$ (inicialmente, 
+no tenemos que contar las personas que viven en los hogares). Una vez que 
+elegimos un hogar preguntamos cuantas personas viven ahí. Siguiendo los 
+supuestos básicos para el muestreo probabilístico, esto basta para construir un 
+estimador razonable (no es necesario conocer todas las $\pi_i$, es suficiente
+conocer las que corresponden a personas seleccionadas en la muestra).
+
+Supongamos que seleccionamos la muestra y llevamos a cabo el levantamiento de 
+datos. Obtenemos los siguientes datos, donde $y$ es el número de refrescos 
+tomados y $k$ el número de personas en el hogar seleccionado:
+
+caso | 1  | 2  | 3
+-----|----|----|----
+k    | 4  | 4  | 5
+y    |5,5 |4,2 |8,0
+
+Siguiendo la idea de que bajo muestreo probabilístico nuestra muestra debe ser
+*similar* a la población, construimos un estimador como sigue: 1) si 
+conociéramos el consumo total de refrescos de cada uno de los tres hogares, 
+podríamos expandir a los 12 hogares de la población usando:
+
+$$\hat{t}=\frac{12}{3}\cdot (\text{Consumo total en los tres hogares})$$
+
+Pero no conocemos el total consumido en cada hogar. Los estimamos entonces de la
+misma forma: como hay cuatro personas en el hogar, y dos de ellas consumen 10
+refrescos en total, expandimos como sigue para obtener una estimación de 
+$\frac{4}{2}\cdot(5+5)=20$ refrescos.
+
+Repitiendo para cada hogar, obtenemos entonces nuestra estimación del total 
+consumido como
+
+$$\hat{t}=\frac{12}{3}\bigg(\frac{4}{2}\cdot(5+5) + \frac{4}{2}\cdot(4+2) +
+\frac{5}{2}\cdot(8+0)\bigg) = \frac{12}{3}\cdot 20 + \frac{12}{3}\cdot 16 + \frac{12}{3}\cdot 20 = 80 + 64 + 80 = 224$$
+
+Vemos que se usa un factor de expansión por hogar y uno por persona. 
+Adicionalmente, los factores de expansión son el inverso de las probabilidades 
+de selección, de forma que podríamos reescribir este estimador del total como:
+
+$$\hat{t}=\sum_{i \in S}\frac{1}{\pi_i}y_i$$
+
+Este procedimiento de expanisón usando el inverso de las probabilidades de 
+selección funciona en general:
+
+<div class="caja">
+El **estimador Horvitz-Thompson** del total poblacional $t=\sum_{i=1}^N y_i$ se
+define como:
+$$\hat{t}=\sum_{i \in S}\frac{1}{\pi_i}y_i$$
+donde la suma es sobre los elementos de la muestra seleccionada.
+</div>
+
+El estimador de H-T es un estimador insesgado de la población. Es importante 
+notar qie **no es necesario conocer t** para verificar esta propiedad: está
+dada por los supuestos de muestreo probabilístico.
+
+<div class="caja">
+El estimador Horvitz-Thompson es un estimador insesgado del total poblacional, 
+es decir:
+
+$$E(\hat{t}) = t$$
+</div>
+
+**Observaciones:**
+
+1. Para construir el estimador de H-T basta conocer la probabilidad de 
+selección para los elementos en la muestra.
+
+2. Podemos escribir el estimador de H-T de una manera más conveniente. 
+Definimos la variable binaria $Z_i$ que indica si el i-ésimo elemento de la
+población fue seleccionado:
+$$
+\begin{equation}
+  Z_i=\begin{cases}
+    1, & \text{si el elemento $i$ está en la muestra}.\\
+    0, & \text{en otro caso}.
+  \end{cases}
+\end{equation}
+$$
+y podemos escribir 
+$$\hat{t}=\sum_{i=1}^N\frac{1}{\pi_i}Z_i y_i$$
+notemos que la suma de arriba recorre todos los elementos de la población, 
+pero solo aquellos seleccionados contribuyen a la suma.
+
+3. El estimador de H-T es insesgado: este resultado establece que el 
+estimador $\hat{t}$ cae *alrededor* del verdadero total poblacional $t$. Es una
+propiedad popularmente deseable, pero no garantiza que el esimador va a caer
+*cerca* de t.  
+Demosytación: usamos la expresión de arriba y la linealidad del valor esperado:
+$$E(\hat{t}) = \sum_{i=1}^N \frac{1}{\pi_i}y_i E(Z_i)$$
+Notamos que $Z_i$ es una variable Bernoulli con $P(Z_i=1)=\pi_i$, de modo que 
+$E(Z_i)=\pi_i$.
+
+Ahora nos interesa calcular la presición del estimador de Horvitz-Thompson.
+
+### Precisión de estimadores
+
+Recordemos que un estimador que está basado en un diseño de muestreo 
+probabilístico, como el de H-T, puede verse como una variable aleatoria cuyo 
+valor está determinado por la muestra particular seleccionada.
+
+<div class="caja">
+A la distribución de un estimador dado, le llamamos *distribución de muestreo*
+del estimador. Nos proponemos producir diseños con estimadores tales que su 
+distribución de muestreo está altamente concentrada en lugares cercanos al
+verdadero valor poblacional.
+</div>
+
+#### Ejemplo: Total de votos PRI
+Consideremos dos diseños para el problema de estimar el número total de votos
+a favor del PRI en casillas del DF: en uno tomamos una muestra con $n=300$ y 
+en el segundo $n=100$. En ambos casos seleccionamos muestras aleatorias sin 
+reemplazo. 
+
+```{r, echo=FALSE, message=FALSE}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(readr)
+eleccion_df <- read_delim("../13-Aleatorizacion/datos/eleccion_df.txt", delim = ";")
+```
+
+```{r, fig.width=5.5, fig.height=2.8}
+N <- nrow(eleccion_df)
+# escribimos una función que toma una muestra de tamaño n y calcula el total de
+# votos para el PRI en la muestra
+totalPriMuestra <- function(n){
+  muestra <- sample_n(eleccion_df, n)
+  total <- N / n * sum(muestra$APM)
+  total
+}
+
+set.seed(2289782)
+# Repetimos el esquema 20000 veces con n = 300 y 20000 con n = 100
+tot_estimados_300 <- rdply(20000, totalPriMuestra(n = 300))
+tot_estimados_300$tamano <- 300
+tot_estimados_100 <- rdply(20000, totalPriMuestra(n = 100))
+tot_estimados_100$tamano <- 100
+
+# creamos un data.frame con los dos juegos de simulaciones
+tot_estimados <- rbind(tot_estimados_300, tot_estimados_100)
+head(tot_estimados)
+
+# calculamos el total poblacional
+pri_pob <- sum(eleccion_df$APM)
+
+ggplot(tot_estimados, aes(x = V1)) +
+  geom_histogram() +
+  facet_wrap(~ tamano)  +
+  geom_vline(xintercept = pri_pob, color = "red")
+```
+
+En ambos casos la línea roja representa el verdadero valor poblacional, vemos 
+que el esquema con $n=300$ es considerablemente más preciso qie el de $n=100$:
+la distribución está más concentrada cerca del verdadero valor.
+
+Podemos resumir la presición con intervalos de 95% de probabilidad como sigue:
+
+```{r}
+tot_estimados %>%
+  group_by(tamano) %>%
+  summarise(
+    inferior = quantile(V1, probs = 0.025), 
+    superior = quantile(V1, probs = 0.975), 
+    inferior_rel = inferior / pri_pob - 1, 
+    superior_rel = superior / pri_pob - 1
+  )
+```
+
+Es decir, el est1Ωimador con $n=300$ tiene una probabilidad de 95% de caer a no 
+más de 4.5% del verdadero valor, mientras que el estimador con $n=100$ tiene una
+probabilidad de 95% de caer a no más de 7.8% del verdadero valor.
+
+Este último ejemplo no es realista, pues obtuvimos miles de muestras para 
+evaluar la presición de los estimadores. En general, solo tenemos una muestra.
+La pregunta interesante es: ¿cómo podemos estimar la presición de la estimación
+con una sola muestra?
+
+Recordando que se trata de un estimador insesgado, podemos usar una medida de
+dispersión de la distribución de $\hat{t}$ (de la distribución de muestreo) para
+evaluar su presición. Ya sabemos que en promedio el estimador cae alrededor del  
+verdadero valor. Pero, ¿qué tan lejos puede estar? Esta es una pregunta acerca 
+de la dispersión del estimador de H-T. Podríamos calcular distintas medidas de 
+dispersión, pero por el momento nos interesa la varianza. Un poco más adelante
+justificaremos esta decisión.
+
+<div class="caja">
+La varianza del estimador $\hat{t}$ de H-T está dada por
+
+$$Var(\hat{t}) = \sum_{i=1}^N \sum_{j=1}^N \frac{y_i}{\pi_i}\frac{y_j}{\pi_j}(\pi_{ij}-\pi_i\pi_j)$$
+</div>
+
+Nótese que esta es una cantidad poblacional ligada al esquema de muestreo, 
+pues requiereconocer todas las $y_i$ para calcularse. No obstante, usando la 
+misma idea de expansión  que usamos para construir el estimador de H-T podemos
+construir una estimación para esta cantidad. La diferencia es que en este caso
+expandemos contribuciones de pares de elementos en la muestra:
+
+<div class="caja">
+Un estimador insesgado de la varianza del estimador $\hat{t}$ de H-T está dado 
+por
+
+$$\hat{Var}(\hat{t}) = \sum_{i=1}^N \sum_{j=1}^N Z_i\frac{y_i}Z_j{\pi_i}\frac{y_j}{\pi_j}(\pi_{ij}-\pi_i\pi_j)\frac{1}{\pi_{ij}}$$
+</div>
+
+Esta es una expresión teórica que usaremos más adelante, la iremos 
+particularizando según distintos esquemas de muestreo. Notemos que esta 
+expresión no da mucha luz de cómo podemos hacer más grande o más chica la 
+varianza, es decir, difícilmente da guías de como obtener estimadores precisos.
+
+#### Ejemplo: votos PRI
+Consideremos nuevamente el ejemplo de votos totales por el PRI en las casillas
+del DF. Comenzamos repitiendo la elección de la muestra de tamaño $n=200$.
+
+```{r}
+N <- nrow(eleccion_df)
+set.seed(28)
+n <- 200
+muestra <- sample_n(eleccion_df, size = n)
+head(muestra, 3)
+```
+
+Calculamos el estimador de H-T. Crearemos una nueva columna en la base de datos
+con el factor de expansión (inverso de la probabilidad de selección para cada 
+elemento de la muestra). En este caso es constante e igual a $N/n$.
+
+```{r}
+muestra$factor <- N/n
+```
+
+El estimador de H-T del total es:
+
+```{r}
+sum(muestra$APM * muestra$factor)
+```
+
+Ahora calculamos la estimación de la varianza de $\hat{t}$. *Nota: usaremos
+directamente la fórmula de arriba. Esta NO es la forma usual de hacerlo: más 
+adelante veremos una fórmula mucho más conveniente para este caso particular.*
+
+Calculamos dos matrices auxiliares, la primera es:
+
+```{r}
+muestra$y_exp <- muestra$APM * muestra$factor
+matriz_1 <- as.matrix(muestra$y_exp) %*% t(as.matrix(muestra$y_exp, ncol = 1))
+dim(matriz_1)
+```
+
+Para calcular la segunda matriz notamos que en este caso:
+
+$$\pi_{ij}=\frac{n}{N}\frac{n-1}{N-1}$$
+
+para $i\ne j$.
+
+```{r}
+pi_ij <- n / N * (n - 1) / (N - 1)
+pi_ij
+
+factor_ij <- 1 / pi_ij
+factor_ij
+```
+
+y para $i=j$ tenemos 
+
+```{r}
+factor_ii <- N / n
+factor_ii
+```
+
+Ahora extraenos la diagonal de la matriz 1.
+
+```{r}
+mat1_diag <- diag(matriz_1) * (1 - n / N)
+```
+
+y fuera de la diagonal tenemos:
+
+```{r}
+mat1_no_diag <- (matriz_1 - diag(diag(matriz_1))) * (1 - ((N - 1) * n) / (N * (n - 1)))
+```
+
+Y la estimación de la varianza es:
+
+```{r}
+var_est <- sum(mat1_no_diag) + sum(mat1_diag)
+var_est
+```
+
+que corresponde a una desviación estándar de 
+
+```{r}
+desv_est <- sqrt(var_est)
+desv_est
+```
+
+Y el coeficiente de variación es 
+
+```{r}
+round(desv_est / sum(muestra$APM *  muestra$factor), 3)
+```
+
+Recordando que este cálculo es sólo un ejemplo, en la próxima sección veremos 
+una fórmula más conveniente.

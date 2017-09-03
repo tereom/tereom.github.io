@@ -1,0 +1,325 @@
+---
+title: "Datos univariados y su distribución"
+author: "Felipe González"
+output:
+  html_document:
+    css: ../estilos/cajas.css
+    theme: spacelab
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(comment=NA, fig.align="center")
+options(digits = 4)
+source("../codigo/tema_ggplot.R")
+```
+
+### Gráficas qq-normales
+En las secciones anteriores hemos usado gráficas de cuantiles para graficar 
+cuantiles de un conjunto de datos, cuantiles teóricos dada una función de 
+distribución, y gráficas que comparan los cuantiles de dos conjuntos de datos.
+También es posible hacer gráficas de conjuntos de datos contra cuantiles 
+teóricos de una distribución, de manera que podamos visualizar el grado de 
+concordancia entre estas dos.
+
+La más popular de estas gráficas son las *cuantil-cuantil normales* 
+(*q-q normales*). Una manera de hacer estas gráficas para el conjunto de datos
+$x_1,...,x_n$ es calcular:
+
+$$\bar{x}=\frac{1}{n}\sum_{i=1}^n x_i, s=\sqrt{\frac{1}{n-1}\sum_{i=1}^n(x_i-\mu)^2}$$
+
+y calcular los cuantiles $q_{\bar{x},s}(f)$ de la distribución 
+$Normal(\bar{x},s)$. Entonces calculamos $q_{\bar{x},s}(f)$ donde 
+$f_1,f_2,...,f_n$ son los cuantiles de los datos y graficamos 
+$(x_{i},q_{\bar{x},s}(f_i))$. Si los puntos no se desvían mucho de la recta 
+$x=y$, entonces el conjunto de datos se distribuye, aproximadamente, de manera
+normal. Las desviaciones de la recta se interpretan como arriba hicimos 
+con la gráfica cuantil cuantil.
+
+Cuando queremos evaluar si la forma de la distribución de los datos es cercana 
+a la normal, no es necesario calcular $\bar{x}$ y $s$, pues para cualquier $\mu$
+y $\sigma$ tenemos que:
+
+$$q_{\mu, \sigma}(f) = \sigma q_{0,1}(f)+\mu,$$
+
+lo que implica que si graficamos los cuantiles $q_{0,1}(f_i)$ contra los del 
+conjunto de datos, los datos se distribuyen aproximadamente normal cuando 
+están dispuestos cerca de una recta.
+
+**Construcción de una gráfica normal de cuantiles.** Si los datos ordenados 
+están dados por $x_{1},x_{2},...,x_{n}$, con valores $f$ correspondientes 
+$f_1,f_2,...,f_n$, entonces graficamos los puntos $(q_{0,1},x_{i})$.
+
+#### Ejemplo: cantantes
+En estas gráficas podemos ver:
+
+1. Cada conjunto de datos es razonablemente bien aproximado por una distribución
+normal. Muchas de las desviaciones que observamos se deben a redondeo.
+
+2. Aunque las medianas varían de grupo a grupo, las pendientes no varían mucho, 
+esto quiere decir que las dispersiones (por ejemplo, desviaciones estándar) son
+similares a lo largo de todos los grupos.
+
+3. La variación en la dispersión de cada conjunto de datos no está asociado 
+a la mediana de cada uno.
+
+```{r, fig.height=4}
+library(ggplot2)
+library(lattice)
+library(dplyr)
+# calculamos la estatura en centímetros
+singer$estatura.m <- singer$height * 2.54
+
+# calculamos el valor f dentro de cada grupo
+singer_ord <- arrange(group_by(singer, voice.part), estatura.m)
+singer_cuant <- mutate(singer_ord, 
+  n = n(), 
+  valor.f = (1:n[1] - 0.5)/n[1],
+  q.norm = qnorm(valor.f)
+  )
+
+ggplot(singer_cuant, aes(x = q.norm, y = estatura.m)) +
+  geom_point() +
+  facet_wrap(~voice.part, nrow = 2) +
+  geom_smooth(method = "lm", se = FALSE)
+  
+```
+
+Esto sugiere una manera eficiente de describir los datos: en primer lugar, 
+hemos detectado que hay cierta variación *espuria* (que seguramente no se 
+repetiría si consideráramos otra muestra de cantantes, y si tuviéramos 
+mediciones no redondeadas de las estaturas): el efecto del redondeo, y cierta 
+variación no reproducible asociada con el hecho de que sólo estamos considerando
+una muestra de cantantes. No hay mucho que aprender de estos aspectos de los 
+datos. En segundo lugar, hemos detectado patrones de variación que aparentan
+ser mucho más estables, como: 1) la distribución aproximadamente normal de las
+estaturas dentro de cada grupo, 2) La diferencia en la media de las 
+distribuciones y 3) la similitud de la dispersión de cada grupo.
+
+Proponemos una estructura para realizar una buena descripción final (concisa y 
+que captura los aspectos más importantes) de los datos:
+
+1. Podemos usar las medias para resumir el valor central de cada grupo de datos 
+(no encontramos muchos valores atípicos ni asimetría importante). En nuestro 
+caso obtenemos (redondeando a enteros):
+
+```{r}
+summarise(singer_ord, media = round(mean(estatura.m)))
+```
+
+2. Podemos usar la desviación estándar para resumir la dispersión en cada grupo
+(también por la simetría aproximada y el hecho de que no hay valores faltantes).
+
+```{r}
+summarise(singer_ord, media = round(sd(estatura.m)))
+```
+
+Más aún como las desviaciones estándar son muy similares, podemos resumir esta
+variación con un sólo número: *a partir de la media, en cada grupo, la estatura
+de los cantantes varía según una distribución normal con media cero y 
+desviación estándar fija (que no depende del grupo) alrededor de 6.5
+centímetros.
+
+3. Los datos dentro de cada grupo tienen forma aproximadamente normal.
+
+4. Finalmente, podemos señalar la existencia de dos datos potencialmente 
+atípicos (en Tenor 2 y quizá Alto 1), y el hecho de que estos datos presentan
+evidencia fuerte de redondeo.
+
+Este es nuestro primer ejemplo completo de análisis exploratorio, hemos:
+
+* descubierto patrones y regularidades interesantes,
+
+* logrado una descripción clara y concisa de los aspectos importantes, 
+
+* y además nos hemos puesto en una buena posición para hacer inferencia más 
+adelante.
+
+La idea es dar énfasis a las cosas más importantes, añadir algunos aspectos 
+relevantes pero menos importantes (como el redondeo), e ignorar variación a 
+escalas más chicas y aspectos que no tienen importancia (como que un cantante
+particular mide 1.83, etc).
+
+Nótese que un punto importante de nuestra descripción fue utilizar la 
+distribución normal para condensar nuestros hallazgos.
+
+<div class="caja">
+**La aproximación normal.** Cuando las distribuciones que nos interesan pueden
+aproximarse bien con la distribución normal, tenemos los siguientes aspectos
+positivos:
+
+* La pregunta de si las distintas distribuciones son versiones desplazadas unas
+de las otras se convierte simplemente en preguntar si las desviaciones estándar
+son iguales o no. Esto lo podemos leer en la pendiente de las gráficas qq 
+normales.
+
+* Los métodos de ajuste e inferencia probabilística son simples y bien 
+conocidos. Los estimadores $\bar{x}$ y $s$ son buenos estimadores de tendencia
+central y dispersión.
+
+* La descripción de los datos es parsimoniosa, y sólo utiliza la media de cada
+grupo y un parámetro de dispersión (si las desviaciones estándar son iguales).
+Estos son suficientes para describir los aspectos importantes de los datos (en 
+lugar de tener que considerar siempre el histograma completo de cada grupo).
+
+* Es fácil calcular rangos aproximados de 95% y 68%.
+</div>
+
+## Ajustes y Residuales
+En esta parte describimos una manera de entender lo que hicimos en la sección 
+anterior.
+
+Retomando el ejemplo de los cantantes, si $y_{pi}$ es la i-ésima  estatura 
+medida en el grupo (tesitura) $p$, entonces la estatura se descompone en dos 
+partes: 
+$$y_{pi}=\bar{y}_p+\hat{\epsilon}_{pi},$$
+
+donde $\bar{y}_p$ es la estatura media dentro del grupo $p$.
+
+Los residuales $\hat{\epsilon}_{pi}$ son las desviaciones de cada estatura con 
+respecto a la media de su grupo:
+
+$$\hat{\epsilon}_{pi}= y_{pi}-\bar{y}_p$$
+
+que podemos escribir de manera simple como:
+
+<div class="caja">
+<center> Valor observado = Valor ajustado + Residual </center>
+</div>
+
+1. Los valores ajustados (las medias en este caso) **explican la variación en 
+las estaturas que se puede atribuir a la tesitura de los cantantes**. Esta es
+variación entre grupos.
+
+2. Los residuales **representan la variación de las estaturas dentro de cada 
+tesitura,** que queda una vez que hemos quitado el desplazamiento de las 
+medias a lo largo de las tesituras. Esta es variación **dentro de grupos.**
+
+Podemos graficar las medias:
+
+```{r, fig.height=3.5, fig.width=4.2}
+singer_ajuste <- mutate(singer_ord, 
+  media = mean(estatura.m), 
+  residual = estatura.m - media, 
+  mediana = median(estatura.m),
+  mediana_residual = median(residual))
+
+ggplot(singer_ajuste, aes(x = voice.part, y = media)) +
+  geom_point()
+```
+
+También podemos graficar los residuales dentro de cada tesitura. Primero 
+calculamos las medias y a cada estatura le restamos la media del grupo que le
+corresponde.
+
+```{r, fig.height=3.5, fig.width=4.2}
+ggplot(singer_ajuste, aes(x = voice.part, y = residual)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitter(height = 1, width = 0.2), alpha = 0.5 )
+```
+
+Que contrastamos con la gráfica correspondiente para las estaturas:
+
+```{r, fig.height=3.5, fig.width=4.2}
+ggplot(singer, aes(x = voice.part, y = estatura.m)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitter(height = 1, width = 0.2), alpha = 0.5 )
+```
+
+Con este tipo de análisis buscamos ir separando y entendiendo distintos aspectos
+o fuentes de variación en los datos. Primero reconocemos que las medias cambian 
+de grupo a grupo. Entonces restamos las medias para *quitar* este efecto de los
+grupos. Hacemos esto para entonces estudiar con más facilidad la *variación que
+queda* después de quitar la fuente de variación que ya entendimos (unos grupos
+son más altos que otros).
+
+#### Ejemplo:propinas
+Consideremos el ejemplo de las propinas, nos interesa la pregunta: ¿Hombres y 
+mujeres dan propina de manera distinta?
+
+Comencemos con una gráfica de caja y brazos:
+
+```{r, fig.height=3.3, fig.width=3.5}
+library(reshape2)
+tips$prop <- tips$tip/tips$total_bill 
+ggplot(tips, aes(x = sex, y = prop)) +
+    geom_boxplot(outlier.size = 0) + 
+  geom_jitter(alpha = 0.5)
+```
+
+Donde vemos, en primer lugar, que hay varias proporciones grandes que ocurren 
+para hombres y mujeres. Estas distribuciones no son simétricas sino que están
+sesgadas a la derecha.
+
+Las medianas, son similares y ambas ligeramente mayores a 15%.
+
+```{r}
+summarise(group_by(tips, sex), 
+  mediana_prop = median(prop)
+  )
+```
+
+Calculamos los residuales tomando a la mediana como valor ajustado en cada
+grupo:
+
+```{r, fig.height=3.3, fig.width=3.5}
+tips_ajuste <- mutate(group_by(tips, sex), 
+  mediana_prop = median(prop),
+  residual = prop - mediana_prop
+  )
+tips_ajuste
+
+ggplot(tips_ajuste, aes(x = sex, y = residual)) + 
+  geom_boxplot()
+```
+
+Y ahora comparamos las distribuciones con un qq-plot:
+
+```{r, fig.height=3.3, fig.width=3.5}
+hombres <- tips_ajuste$residual[tips_ajuste$sex == 'Male'] 
+mujeres <- tips_ajuste$residual[tips_ajuste$sex == 'Female'] 
+
+qq_sex <- qqplot(hombres, mujeres, plot.it = FALSE)
+ggplot(as.data.frame(qq_sex), aes(x, y)) + 
+  geom_point() +
+  geom_abline(intercept=0, slope = 1)
+```
+
+Notamos que estas distribuciones no son muy distintas, excepto por el atípico 
+que observamos en hombres.
+
+Por otra parte, en este ejemplo no es razonable usar el modelo normal para
+describir los residuales:
+
+```{r, fig.height=3.3, fig.width=5}
+ggplot(tips_ajuste, aes(sample = prop)) + 
+  stat_qq() + 
+  facet_wrap(~sex)
+# qq-plots normales en R base:
+# qqnorm(mujeres)
+# qqline(mujeres)
+```
+
+Una alternativa es usar cuantiles:
+
+```{r}
+summarise(group_by(tips, sex), 
+  cuarto_inf = round(quantile(prop, 0.25), 2),
+  mediana = round(median(prop), 2), 
+  cuarto_sup = round(quantile(prop, 0.75), 2)
+  )
+```
+
+Y podemos describir los datos como sigue:
+
+* La mediana de la propina es un superior a 15 por ciento. Esto no depende del
+genero del que da la propina.
+
+* En raras ocasiones, los clientes dejan propinas grandes (en proporción): mayor
+a 25% solo ocurre alrededor de un 4% de ocasiones, y hay un atípico de 70% 
+(hombre).
+
+* El 50% de las propinas típicas varía entre 13 y 19%, es decir, entre -2 y +4
+puntos porcentuales a partir de 15%. La distribución es asimétrica (hay sesgo 
+hacia arriba, lo cual hace emocionante recibir propinas!).
+
+¿Por qué no logramos una descripción tan simple como la de los cantantes?
