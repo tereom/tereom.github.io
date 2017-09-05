@@ -571,7 +571,7 @@ $Q_i$ es un número que representa la habilidad del estudiante y $\textbf{v}$ es
 un vector fijo con 5 números que aplica a todos los estudiantes. Si este modelo
 simple fuera cierto, entonces únicamente el $\hat{\lambda}_1$ sería positivo
 y $\textbf{v} = \hat{v}_1$.
-Sea $$\hat{\theta}=\sum_{i=1}^5\hat{\lambda}_i$$
+Sea $$\hat{\theta}=\frac{\hat{\lambda}_1}{\sum_{i=1}^5\hat{\lambda}_i}$$
 el modelo propuesto es equivalente a $\hat{\theta}=1$, inculso si el modelo es
 correcto, no esperamos que $\hat{\theta}$ sea exactamente uno pues hay ruido en 
 los datos.
