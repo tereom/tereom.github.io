@@ -278,7 +278,7 @@ calcula_intervalos <- function(n = 10){
 }
 
 sims_intervalos_10 <- rerun(500, calcula_intervalos()) 
-sims_intervalos %>% 
+sims_intervalos_10 %>% 
     bind_rows() %>% 
     group_by(metodo) %>%
         summarise(
