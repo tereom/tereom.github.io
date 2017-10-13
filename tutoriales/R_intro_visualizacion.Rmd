@@ -332,7 +332,7 @@ Supongamos que queremos ver la tendencia del nombre "John", para ello debemos
 generar un subconjunto de la base de datos. ¿Qué ocurre en la siguiente gráfica?
 
 ```{r,  fig.width = 5, fig.height = 3}
-babynames_John <- babynames[babynames$name == "John", ]
+babynames_John <- filter(babynames, name == "John")
 ggplot(babynames_John, aes(x = year, y = prop)) +
   geom_point()
 ```
@@ -345,6 +345,49 @@ ggplot(babynames_John, aes(x = year, y = prop, color = sex)) +
 La preparación de los datos es un aspecto muy importante del análisis y suele ser
 la fase que lleva más tiempo. Es por ello que el siguiente tema se enfocará en 
 herramientas para hacer transformaciones de manera eficiente.
+
+### Extensiones a ggplot
+Existen paquetes que permiten transformar las gráficas estáticas de `ggplot2` en
+gráficas dinámicas, por ejemplo, [plotly](https://plot.ly/r/).
+
+```{r, message=FALSE, warning=FALSE}
+library(plotly)
+data(starwars)
+
+disp_hwy <- ggplot(mpg, aes(x = displ, y = hwy, color = class, label = model)) + 
+  geom_point()
+
+ggplotly(disp_hwy)
+```
+
+Otro paquete que puede resultar útil es [trelliscopejs](https://hafen.github.io/trelliscopejs/#tidy_interface), 
+que busca escalar y proveer de herramientas interactivas a visualizaciones de 
+pequeños múltiplos. 
+
+```{r trelliscope, warning=FALSE, message=FALSE, fig.width = 10, fig.height=10}
+# devtools::install_github("hafen/trelliscopejs")
+library(trelliscopejs)
+library(housingData)
+
+# seleccionamos únicamente los registros de CA y creamos variable de año
+housing_CA <- housing %>% 
+    filter(state == "CA") %>% 
+    mutate(yearSold = factor(lubridate::year(time))) 
+
+glimpse(housing_CA)
+
+ggplot(housing_CA, aes(x = medSoldPriceSqft, y = nSold, color = yearSold)) +
+    geom_point(alpha = 0.8) +
+    facet_wrap(~county)
+```
+
+```{r, fig.width=8, fig.height=8}
+ggplot(housing_CA, aes(x = medSoldPriceSqft, y = nSold, color = yearSold)) +
+    geom_point(alpha = 0.8) +
+    xlim(20, 1000) + ylim(55000, 1140000) + 
+    facet_trelliscope(~ county, nrow = 2, ncol = 2, self_contained = TRUE, as_plotly = TRUE)
+```
+
 
 ![](imagenes/manicule.jpg) Tarea. Explora la base de datos gapminder, estos datos están 
 incluidos en el paquete del mismo nombre, para acceder a ellos basta con cargar el paquete:
@@ -361,7 +404,7 @@ gapminder
 ### Recursos
 * Google, stackoverflow.
 * Para aprender más de ggplot pueden ver la documentación con ejemplos en la 
-página de [ggplot2](http://ggplot2.tidyverse.org).
+página de [ggplot2](http://ggplot2.tidyverse.org/).
 * Otro recurso muy útil es el [acordeón de ggplot](https://www.rstudio.com/wp-content/uploads/2015/04/ggplot2-spanish.pdf).
 
 
