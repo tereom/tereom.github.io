@@ -144,7 +144,7 @@ de $g(\theta)$.
 3. **Asintóticamente normal**: $\hat{\theta} \leadsto N(\theta, I(\theta)^{-1})$, 
 veremos a que nos referimos con $ I(\theta)^{-1}$ en la siguiente sección.
 
-```{r}
+```{r, fig.width=3, fig.height=3}
 sim_sigma_hat <- function(n = 50, mu_sim = 0, sigma_sim = 1){
     x <- rnorm(n, mu_sim, sigma_sim)
     sigma_hat <- sqrt(sum((x - mean(x)) ^ 2) / n)
@@ -208,17 +208,17 @@ l_b1 <- ggplot(xy, aes(x = x, y = y)) +
     stat_function(fun = L_bernoulli(n = 20, S = 10)) +
     xlab(expression(theta)) +
     ylab(expression(L(theta))) +
-    ggtitle("n=20, S = 10")
+    labs(title = "Verosimilitud", subtitle = "n=20, S = 10")
 l_b2 <- ggplot(xy, aes(x = x, y = y)) +
     stat_function(fun = L_bernoulli(n = 20, S = 14)) +
     xlab(expression(theta)) +
     ylab(expression(L(theta))) +
-    ggtitle("n=20, S = 14")
+    labs(title = "Verosimilitud", subtitle = "n=20, S = 14")
 l_b3 <- ggplot(xy, aes(x = x, y = y)) +
     stat_function(fun = L_bernoulli(n = 20, S = 19)) +
     xlab(expression(theta)) +
     ylab(expression(L(theta))) +
-    ggtitle("n=20, S = 19")
+    labs(title = "Verosimilitud", subtitle = "n=20, S = 19")
 
 grid.arrange(l_b1, l_b2, l_b3, nrow = 1)
 ```
@@ -339,9 +339,8 @@ simBern <- function(){
   x_boot <- sample(0:1, size = 70, replace = TRUE, prob = c(1-p_hat, p_hat))
   mean(x_boot)
 }
-sims_boot <- rdply(2000, simBern)
-sqrt(1 / 1999 * sum((sims_boot$V1 - p_hat) ^ 2))
-
+sims_boot <- rerun(2000, simBern()) %>% flatten_dbl()
+sd(sims_boot)
 ## Fisher
 sqrt(p_hat * (1 - p_hat) / 70)
 ```
@@ -445,7 +444,8 @@ base <- create.bspline.basis(
     )
 plot(base, lty = "solid")
 ```
-Podemos representar el espacio por medio de una expansión lineal en de funciones
+
+Podemos representar el espacio por medio de una expansión lineal en las funciones
 base:
 
 $$\mu(x) = \sum_{j=1}^7 \beta_j h_j(x)$$
@@ -481,7 +481,7 @@ ggplot(toy, aes(x = x, y = y)) +
 ```
 
 **Bootstrap no paramétrico**. Usemos bootstrap para calcular errores estándar, 
-para esto tomamos muestras con reemplazo de los pares $z_i(x_i,y_i)$, para 
+para esto tomamos muestras con reemplazo de los pares $z_i = (x_i,y_i)$, para 
 cada muestra _bootstrap_ $Z^*$ ajustamos un polinomio cúbico $\hat{\mu}^*(x)$ y 
 construimos bandas de confianza usando los intervalos de cada punto.
 
@@ -492,7 +492,7 @@ splinesBoot <- function(){
     H <- eval.basis(toy_boot$x, base)
     as.vector(solve(t(H) %*% H) %*% t(H) %*% toy_boot$y)
 }
-betas <- rerun(2000, splinesBoot()) %>% reduce(rbind)
+betas <- rerun(4000, splinesBoot()) %>% reduce(rbind)
 
 splines_boot <- ggplot(toy, aes(x = x, y = y)) 
 
@@ -501,7 +501,7 @@ for(i in 1:100){
     stat_function(fun = mu, args = list(betas = betas[i, ]), alpha = 0.1) 
 }
 
-splines_boot + geom_point(color = "red", alpha = 0.8)
+splines_boot + geom_point(color = "red", alpha = 0.5)
 ```
 
 La gráfica superior muestra 100 replicaciones bootstrap del suavizamiento. 
@@ -512,25 +512,21 @@ y más grande.
 # construimos los intervalos
 x_grid <- seq(knots[1], knots[5], 0.02) # creamos un grid para evaluar mu(x)
 H <- eval.basis(x_grid, base) # Evalúo la base en el rango
-y <- betas %*% t(H) # calculo mu(x*)
-
 betas_list <- split(betas, seq(nrow(betas)))
 y <- purrr::map_df(betas_list, ~ data_frame(x = x_grid, mu = as.vector(. %*% t(H))))
 limites <- y %>% 
-  group_by(x) %>% 
-  summarise(
-    limite_inf = quantile(mu, probs = 0.025), 
-    limite_sup = quantile(mu, probs = 0.975)
+    group_by(x) %>% 
+    summarise(
+        limite_inf = quantile(mu, probs = 0.025), 
+        limite_sup = quantile(mu, probs = 0.975)
     )
   
 ggplot(limites) + 
     geom_line(aes(x = x, y = limite_inf), color = "darkgray") +
     geom_line(aes(x = x, y = limite_sup), color = "darkgray") +
-    geom_point(data = toy, aes(x = x, y = y), color = "red") + 
+    geom_point(data = toy, aes(x = x, y = y), color = "red", alpha = 0.5) + 
     stat_function(fun = mu, args = list(betas = beta_hat), color = "blue") +
     labs(x = "", y = "")
-  
-  
 ```
 
 Supongamos ahora que los errores se distribuyen normal:
@@ -557,7 +553,7 @@ splinesBootP <- function(){
     as.vector(solve(t(H) %*% H) %*% t(H) %*% toy_boot$y)
 }
 
-betas_p <- rerun(2000, splinesBootP()) %>% reduce(rbind)
+betas_p <- rerun(4000, splinesBootP()) %>% reduce(rbind)
 
 splines_boot_p <- ggplot(toy, aes(x = x, y = y)) 
 for(i in 1:100){
@@ -565,7 +561,7 @@ for(i in 1:100){
         stat_function(fun = mu, args = list(betas = betas_p[i, ]), alpha = 0.1) 
 }
 
-splines_boot + geom_point(color = "red") 
+splines_boot + geom_point(color = "red", alpha = 0.5) 
 ```
 
 y construímos intervalos
@@ -573,17 +569,24 @@ y construímos intervalos
 ```{r, fig.width = 4}
 # construimos los intervalos
 x_grid <- seq(knots[1], knots[5], 0.02) # creamos un grid para evaluar mu(x)
-H <- eval.basis(x_grid, base) # Evaluo la base en el rango
-y <- betas %*% t(H) # calculo mu(x*)
+H <- eval.basis(x_grid, base) # Evalúo la base en el rango
+y <- betas_p %*% t(H) # calculo mu(x*)
 
-y_quant <- t(apply(y, 2, quantile, probs = c(0.025, 0.975))) # calculo intervalos
-xy_cuantiles <- data.frame(x = x_grid, y_quant) %>% # creo un data.frame
-  gather(cuantil, valor, X2.5., X97.5.)
-
-ggplot(xy_cuantiles) + 
-  geom_line(aes(x = x, y = valor, group = cuantil), color = "darkgray") +
-  geom_point(data = toy, aes(x = x, y = y), color = "red") + 
-  stat_function(fun = mu, args = list(betas = beta_hat), color = "blue") 
+betas_list <- split(betas_p, seq(nrow(betas)))
+y <- purrr::map_df(betas_list, ~ data_frame(x = x_grid, mu = as.vector(. %*% t(H))))
+limites <- y %>% 
+  group_by(x) %>% 
+  summarise(
+    limite_inf = quantile(mu, probs = 0.025), 
+    limite_sup = quantile(mu, probs = 0.975)
+    )
+  
+ggplot(limites) + 
+    geom_line(aes(x = x, y = limite_inf), color = "darkgray") +
+    geom_line(aes(x = x, y = limite_sup), color = "darkgray") +
+    geom_point(data = toy, aes(x = x, y = y), color = "red", alpha = 0.5) + 
+    stat_function(fun = mu, args = list(betas = beta_hat), color = "blue") +
+    labs(x = "", y = "")
 ```
 
 Máxima verosimilitud:
@@ -602,7 +605,7 @@ es:
 $$\hat{se}=[h(x)^T(H^TH)^{-1}h(x)]^{1/2}\hat{\sigma}$$
 
 ```{r, fig.width = 4}
-seMu <- function(x, lim = "sup"){ # lim es un string, si sup regresa límite superior
+seMu <- function(x){ 
   # calculo h(x)
   h <- eval.basis(x, base)
   # calcilo se_hat(x)
@@ -615,20 +618,26 @@ max_ver_errores <- data.frame(x = x_grid,
   gather(cuantil, valor, y_min, y_max)
 
 ggplot(toy) +
-  geom_point(color = "red", aes(x = x, y = y)) + 
-  stat_function(fun = mu, arg = list(betas = beta_hat), color = "blue") +
+  geom_point(color = "red", aes(x = x, y = y), alpha = 0.5) + 
+  stat_function(fun = mu, args = list(betas = beta_hat), color = "blue") +
   geom_line(data = max_ver_errores, aes(x = x, y = valor, group = cuantil), 
-    color = "darkgray")
+    color = "darkgray") + 
+    stat_function(fun = mu, args = list(betas = beta_hat), color = "blue") +
+    labs(x = "", y = "") 
 ```
 
 
 En general el bootstrap paramétrico coinicide con máxima verosimilitud, la 
 ventaja de _bootstrap_ sobre máxima verosimilitud es que permite calcular 
 estimaciones de máxima verosimilitud de errores estándar en escenarios donde
-no hay fórmulas disponibles.
+no hay fórmulas disponibles. Por ejemplo, podríamos seleccionar el número 
+y la ubicación de los nudos de manera adaptativa, usando validación 
+cruzada. En este caso no hay fórmulas para el cálculo de errores estándar pero 
+*bootstrap* sigue funcionando.
 
 ![](../imagenes/manicule2.jpg) Sean $X_1,...,X_n \sim N(\mu, 1)$. Sea 
-$\theta = e^{\mu}$, crea una base de datos usando $\mu=5$ que consista de $n=100$ observaciones.
+$\theta = e^{\mu}$, crea una base de datos usando $\mu=5$ que consista de $n=100$ 
+observaciones.
 
 * Usa el método delta para estimar $\hat{se}$ y crea un intervalo del 95% de
 confianza. Usa boostrap paramétrico para crear un intervalo del 95%. Usa 
