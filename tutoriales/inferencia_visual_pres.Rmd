@@ -1,0 +1,467 @@
+---
+title: "Inferencia visual"
+author: "Teresa Ortiz"
+date: "2/15/2018"
+output:
+  ioslides_presentation:
+    widescreen: true
+    smaller: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache = TRUE, message = FALSE)
+library(tidyverse)
+library(rgdal)
+library(nullabor)
+```
+
+## ¡Gráficas!
+
+```{r preparacion_defunciones}
+# base de datos de defunciones, INEGI http://www3.inegi.org.mx/rnm/index.php/catalog/231
+defun15 <- read_csv("data/defunciones_base_datos_2015_csv/conjunto_de_datos/defun15.CSV")
+
+# base de datos de CONAPO http://www.conapo.gob.mx/es/CONAPO/Proyecciones_Datos
+baseprymunMX <- read_csv("data/conapo/baseprymunMX.csv")
+# población 65+ por localidad
+pob_65 <- baseprymunMX %>%
+    filter(edad == "65+", año == 2015) %>%
+    group_by(ent, id_ent, mun, id_mun, cvegeo) %>%
+    summarise(pob = sum(pob))
+
+# muertes por diabetes
+decatcausa <- read_csv("data/defunciones_base_datos_2015_csv/catalogos/decatcausa.csv")
+deedad <- read_csv("data/defunciones_base_datos_2015_csv/catalogos/deedad.csv")
+
+# mayores de 65 años
+cves_65 <- deedad %>%  
+    filter(CVE >= 4065) %>%
+    pull(CVE)
+
+calcular_tasas <- function(causa){
+    cves_enfermedad <- decatcausa %>%
+        filter(str_detect(DESCRIP, regex(causa, ignore_case = T))) %>%
+        pull(CVE)
+    
+    defun15_causa <- defun15 %>%
+        dplyr::select(ent_resid, mun_resid, causa_def, edad) %>%
+        filter(
+            causa_def %in% cves_enfermedad,
+            edad %in% cves_65
+        ) %>%
+        mutate_at(c("ent_resid", "mun_resid"), parse_number) %>%
+        group_by(ent_resid, mun_resid) %>%
+        summarise(n_causa = n())
+
+    defun_mun <- pob_65 %>% 
+        left_join(defun15_causa, by = c("id_ent" = "ent_resid", "id_mun" = "mun_resid")) %>% 
+        mutate(
+            n_causa = ifelse(is.na(n_causa), 0, n_causa), 
+            tasa_mun = n_causa / pob * 10000
+        )
+    
+    defun_entidad <- defun_mun %>% 
+        group_by(ent, id_ent) %>% 
+        summarise(
+            n_causa = sum(n_causa), 
+            pob = sum(pob)
+        ) %>% 
+        ungroup() %>% 
+        mutate(tasa_causa = n_causa / pob * 10000)
+    
+    return(list(defun_mun = defun_mun, defun_entidad = defun_entidad))
+}
+
+tasas_diabetes <- calcular_tasas("diabetes")
+
+edo_shp <- readOGR("data/shapes" , "Mex_Edos", verbose = FALSE)
+edo_df <- fortify(edo_shp, region = "NOM_ENT") %>% 
+    mutate(id = ifelse(id == "Coahuila de Zaragoza", "Coahuila", id)) 
+
+set.seed(74872)
+nulos <- lineup(null_permute("tasa_causa"), tasas_diabetes$defun_entidad, n = 6)
+nulos_map <- edo_df %>% 
+    left_join(nulos, by = c("id" = "ent"))
+```
+
+Las gráficas nos dan herramientas para descubrir nuevas relaciones. 
+
+```{r mapa_nulo}
+ggplot() + 
+    geom_polygon(data = filter(nulos_map, .sample == 2), aes(long, lat, 
+        group = group, fill = tasa_causa)) +
+    labs(title = "Muertes relacionadas con diabetes", 
+        subtitle = "Año 2015, mayores 65", 
+        fill = "", x = "", y = "") +
+    scale_x_continuous(breaks = NULL) +
+    scale_y_continuous(breaks = NULL) +
+    theme_minimal() + #fondo blanco
+    scale_fill_distiller(palette="RdBu", type="seq", direction=1) +
+    theme(legend.position = "bottom", 
+        panel.background = element_blank()) + #paleta 
+    coord_map()
+```
+
+
+## Apofenia
+
+El _ímpetu por concluir_ (*rage-to-conclude bias*, Tufte) nos hace ver patrones 
+en datos donde no existen dichos patrones. 
+
+```{r apofenia}
+library(png)
+library(grid)
+img <- readPNG("imagenes/apofenia.png")
+ grid.raster(img)
+```
+<!-- Esto puede conllevar a inferencias 
+prematuras, el análisis estadístico busca alinear la 
+realidad en la evidencia con la inferencia que se realiza a partir de dicha
+evidencia. 
+
+The rage-to-conclude bias sees patterns in data lacking such patterns. 
+The bias leads to premature, simplistic, and false inferences about causality. 
+Good statistical analysis seeks to calm down the rage to conclude, 
+to align the reality of the evidence with the inferences made from that evidence. 
+The calming down process often involves statistical analysis sorting out 
+the "random" from the "nonrandom," the "significant" and the dreaded 
+"not significant," and "explained" from "unexplained" variance. 
+
+2 componentes en la inferencia: evaluar si existe una diferencia y
+que tan grande es ésta. 
+
+Aquí nos enfocaremos en la primera:
+
+**¿Lo que veo en una gráfica de la muestra refleja a la población entera?**
+-->
+
+## Tasas de diabetes
+
+La inferencia visual nos permite descubrir nuevas relaciones, controlando la 
+apofenia.
+    
+```{r lineup_diabetes}
+ggplot() + 
+    geom_polygon(data = nulos_map, aes(long, lat, group = group, 
+        fill = tasa_causa), show.legend = FALSE) +
+    facet_wrap(~.sample, nrow = 2) +
+    labs(title = "Muertes relacionadas con diabetes", 
+        subtitle = "Año 2015, mayores 65", 
+        fill = "", x = "", y = "") +
+    scale_x_continuous(breaks = NULL) +
+    scale_y_continuous(breaks = NULL) +
+    theme_minimal() + #fondo blanco
+    guides(fill = guide_legend(reverse = TRUE)) +
+    scale_fill_distiller(palette = "RdBu") + #paleta 
+    coord_map()
+```
+
+## Referencias
+
+* Wickham, H., Cook, D., Hofmann, H. and Buja, A. (2010) [Graphical Inference for Infovis](http://stat.wharton.upenn.edu/~buja/PAPERS/Wickham-Cook-Hofmann-Buja-IEEE-TransVizCompGraphics_2010-Graphical%20Inference%20for%20Infovis.pdf)
+
+* Hofmann, H., Follett, L., Majumder, M. and Cook, D. (2012) Graphical Tests for Power Comparison of Competing Designs.
+
+* Tufte, E. [Making better inferences from statistical graphics](http://www.edwardtufte.com/bboard/q-and-a-fetch-msg?msg_id=0003wa).
+
+* Cook, D. [To the tidyverse and beyond: Challenges to the future of data science](http://www.dicook.org/files/rstudio/#1)
+
+
+## Inferencia
+
+La inferencia ocurre cuando usamos muestras de los datos para concluir acerca 
+de la población completa. 
+
+Típicamente se usan estadísticas (funciones de la muestra) como medias, 
+desviaciones estándar, medianas, etc. y nuestros conocimientos de como se 
+comportan las estadísticas a lo largo de las posibles muestras (ej. error estándar 
+de la media).
+
+
+En el caso de inferencia visual las estadísticas son las gráficas.
+
+## Protocolos de inferencia visual
+
+* **Rorschach**. Antes de observar los datos, grafica una serie de datos nulos, 
+para obtener una idea de como se vería nuestra gráfica cuando no hay relación 
+entre las variables.
+
+* **Lineup**. Escondemos la gráfica de los datos en un conjunto de datos nulos
+y pregunta a un tercero si puede identificar los datos reales. Si eligen la 
+gráfica con los datos *verdaderos* tenemos evidencia de que los datos tienen 
+estructura que es significativamente diferente a lo que esperaríamos por azar.
+
+![](imagenes/waldo.jpg)
+```{r waldo, eval=FALSE}
+library(jpeg)
+library(grid)
+img <- readJPEG("imagenes/waldo.jpg")
+ grid.raster(img)
+```
+
+## Datos nulos
+Para generar datos nulos podemos usar un método no paramétrico o uno paramétrico.
+
+* **Permutación**: Seleccionamos una de las columnas de los datos de interés
+y permutamos los valores.
+
+* **Simulación**: Suponemos que una variable sigue una distribución y simulamos
+de esta. 
+
+## Calibración con Rorschach
+La siguiente imagene proviene de un escrito de Edmond Murphy que en 1964 escribió
+sobre la dudosa inferencia de mecanismos causales a partir de la observación de 
+una distribución bimodal (Edward Tufte, *The Visual Display of Quantitative 
+Information*, p. 169):
+
+![https://www.edwardtufte.com/bboard/q-and-a-fetch-msg?msg_id=0003wa](imagenes/tufte.png)
+
+
+## Ejemplo: Estaturas
+Estaturas de hombres y mujeres. Supongamos que nos interesa describir de manera 
+simple los datos, independientemente de si se trata de un hombre o una mujer.
+
+
+```{r, echo=FALSE}
+library(nullabor)
+library(lattice)
+
+data(singer)
+# creo base de datos singer-gender donde Sopranos y Alto -> F
+singer_g <- singer %>% 
+    mutate(
+        gender = case_when(
+            voice.part %in% c("Soprano 1", "Soprano 2", "Alto 1", "Alto 2") ~ "F", 
+            TRUE ~ "M"), 
+        height = 2.54 * height) %>%
+  dplyr::select(gender, height)
+```
+
+```{r, echo=TRUE}
+glimpse(singer_g)
+```
+
+*Suponemos que la estatura es una medición que se distribuye aproximadamente 
+normal con media 171 cm y desviación estándar 10 cm. ¿Es razonable esta 
+descripción?*
+
+## Lineup
+
+Hacemos 19 simulaciones bajo el modelo $N(\mu, \sigma^2)$ ¿Captura este modelo 
+las características observadas?
+
+```{r}
+library(nullabor)
+
+sing_null <- lineup(null_dist('height', dist = 'normal', 
+    params = list(mean = 171, sd = 10)), n = 20, singer_g)
+
+ggplot(sing_null, aes(x = gender, y = height)) +
+    facet_wrap(~ .sample) +
+    geom_jitter(position = position_jitter(width = 0.1, height = 1), 
+        size = 0.8, alpha = 0.5)
+```
+
+El poder distinguir los datos provee evidencia estadística rigurosa de que hay 
+diferencia.
+
+## Pruebas de hipótesis típicas
+
+1. Hipótesis nula ($H_0$): hipótesis que se desea contrastar, describe la 
+conducta _default_ del fenómeno de interés.
+
+2. Hipótesis alternativa ($H_1$).
+
+3. Estadística de prueba: es una estadística en en base a la cuál tomamos 
+la decisión de rechazar o no rechazar. Se calcula considerando la hipótesis
+nula como verdadera.
+
+4.. Valor-p: Nivel de significancia alcanzado, probabilidad de que la estadística
+de prueba sea al menos tan extrema como la observada con los datos si la 
+hipótesis nula es verdadera.
+
+## Ejemplo
+
+Hipótesis:
+$$H_0:\mu_m = \mu_h$$
+Estadistica de prueba es:
+$$Z=\frac{\bar{X_m}-\bar{X_h}}{\hat{\sigma}\sqrt{1/n_1+1/n_2}}$$
+la prueba se basa en una distribución $t$ con $n_1 + n_2 - 2$ grados de libertad.
+
+```{r}
+t.test(x = singer_g$height[singer_g$gender == "F"], 
+  y = singer_g$height[singer_g$gender == "M"], var.equal = TRUE)
+```
+
+## Datos nulos
+
+¿Cómo se ven los *inocentes*?
+
+```{r}
+nulos <- data.frame(t = rt(10000, 233))
+ggplot(nulos, aes(x = t)) +
+    geom_histogram(color = "darkgray", fill = "darkgray") +
+    geom_vline(xintercept = c(qt(0.025, 233), qt(0.975, 233)), color = "red", 
+        alpha = 0.5) 
+```
+
+## Inferencia visual
+
+Los principios de pruebas de hipótesis son los mismos para pruebas visuales, 
+a excepción de dos aspectos: la estadística de prueba y el mecanismo para 
+medir similitud. 
+
+**La estadística de prueba ahora es una gráfica de los datos, 
+y en lugar de una diferencia matemática usamos el ojo humano.**
+
+En la prueba gráfica, los verdaderos datos están escondidos entre 19 gráficas
+de datos nulos, donde un dato nulo es una muestra de la distribución bajo la
+hipótesis nula. Si es posible identificar los datos, hay evidencia indicando
+que estos son distintos a los datos nulos.
+
+<!--
+Este ejemplo muestra la analogía entre una prueba tradicional (numérica) y 
+una prueba visual. Las pruebas estadísticas tradicionales se han estudiado por
+un largo tiempo y funcionan bien cuando los datos se comportan bien: siguiendo
+una distribución conocida en un escenario relativamente simple. Sin embargo, 
+la estadística tradicional no cubre todas las complejidades que surgen cuando
+se exploran datos y la ventaja de las pruebas visuales es que se pueden usar en 
+escenarios de análisis complejos donde no existen pruebas numéricas.
+-->
+
+## Resumen prueba visual
+
+1. Genera n-1 datos nulos (datos que siguen la hipótesis nula)
+
+2. Grafica los nulos + los datos reales, donde los datos están posicionados
+de manera aleatoria.
+
+3. Muestra la gráfica a un observador imparcial.
+
+¿Pueden distinguir los datos? Si es el caso, hay evidencia de diferencia 
+verdadera (valor p = 1/n).
+
+## Regresando a estaturas
+
+Volvamos al ejemplo de las estaturas, proponemos el siguiente modelo: la 
+estatura es aproximadamente normal con media 179 para hombres y 164 para mujeres,
+la desviación estándar es de 6.5 en ambos casos.
+
+```{r, fig.width=6, fig.height=6, echo = TRUE}
+library(nullabor)
+singer_c <- singer_g %>%
+    group_by(gender) %>%
+    mutate(height_c = height - mean(height))
+set.seed(26832)
+sing_null_c <- lineup(null_dist('height_c', dist = 'normal', 
+    params = list(mean = 0, sd = sd(singer_c$height_c))), n = 20, singer_c)
+sing_null_c
+```
+
+## Gráfica
+
+```{r, echo = TRUE}
+ggplot(sing_null_c, aes(x = gender, y = height_c)) +
+    facet_wrap(~ .sample) +
+    geom_jitter(position = position_jitter(width = 0.1, height = 1), 
+        size = 0.8, alpha = 0.5)
+```
+
+
+## ¿Porqué pruebas visuales?
+
+En el ejemplo de estaturas se pueden utilizar pruebas estadísticas tradicionales, 
+sin embargo, estas pruebas no cubren todas las complejidades que pueden surgir 
+en una exploración de datos.
+
+```{r wordcloud}
+library(png)
+library(grid)
+img <- readPNG("imagenes/wordcloud.png")
+ grid.raster(img)
+```
+
+## El paquete nullabor
+
+`null_dist`: Simula dada una distribución particular: Beta, Cauchy, Exponencial, 
+Poisson,...
+
+`null_lm`: Simula cuando la variable es una combinación lineal de predictores.
+
+`null_permute`: Utiliza permutación, la variable es independiente de las otras.
+
+Si se desea extender a otros modelos el artículo [Supplementary Material for “Statistical
+Inference for Exploratory Data Analysis
+and Model Diagnostics"](http://stat.wharton.upenn.edu/~buja/PAPERS/06-Buja-Cook-Hofmann-Lawrence-Lee-Swayne-Wickham-suppl.pdf) explica algunas consideraciones para generar datos nulos.
+
+```{r}
+library(gapminder)
+
+gapminder_07 <- gapminder %>% 
+    filter(year == 2007) %>% 
+    mutate(country = as.character(country))
+
+
+women_25_plus <- readxl::read_excel("data/Years_in_school_women_25_plus.xlsx")
+women_07 <- women_25_plus %>% dplyr::select(country = `Row Labels`, escolaridad = `2007.0`)
+
+women_pop <- left_join(gapminder_07, women_07)
+
+women_pop <- filter(women_pop, !(country %in% c("China", "India")))
+```
+
+Ejemplo: población vs años escolaridad promedio mujeres mayores de 25 años.
+```{r, echo = TRUE, message=TRUE, warning=FALSE}
+set.seed(989103)
+escolaridad <- ggplot(lineup(null_permute("escolaridad"), women_pop), aes(x = pop, y = escolaridad)) +
+    #geom_jitter(position = position_jitter(width = 0.1, height = .1), alpha = 0.5) +
+    geom_point(alpha = 0.6) +
+    geom_smooth(method = "lm") +
+    facet_wrap(~ .sample)
+```
+
+## Escolaridad
+
+```{r, warning=FALSE}
+escolaridad
+
+decrypt("WOXC 1IZI Tx t4nTZT4x m")
+```
+
+## Otras consideraciones
+
+**Potencia**
+
+* La potencia en una prueba de hipótesis es la probabilidad de rechazar la hipótesis
+nula cuando esta es falsa.
+
+* En el caso de pruebas visuales la potencia depende de la calidad de la gráfica.
+
+* Se ha estudiado la potencia de las pruebas [Validation of Visual Statistical Inference, Applied to Linear Models](http://www.tandfonline.com/doi/abs/10.1080/01621459.2013.808157)
+
+**Valor p**
+
+* Si usamos un jurado compuesto por $K$ jueces en lugar de un juez y $k$ de ellos entonces
+el valor p combinado es $P(X \le k)$ donde $X$ tiene distribución 
+$Binomial(K, 1/20)$. Si todos los jueces identifican los datos el valor p sería
+$0.05^K$
+
+
+
+## Preguntas
+
+<div class="centered", color="black">
+The first principle is that you must not fool yourself — and you are the easiest person to fool.
+</div>
+*Richard Feynman*
+
+</br>
+**Ligas:**
+
+* Presentación: https://github.com/tereom/inferencia_visual
+
+* Github:[/tereom](https://github.com/tereom)
+
+* Twitter: @teresaOM
+
+* Correo: teresa.ortiz.mancera@gmail.com
