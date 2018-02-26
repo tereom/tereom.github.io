@@ -1,11 +1,12 @@
 ---
 title: "Inferencia visual"
 author: "Teresa Ortiz"
-date: "2/15/2018"
+date: "2/15/2018 </br> https://github.com/tereom/inferencia_visual"
 output:
   ioslides_presentation:
     widescreen: true
     smaller: true
+    fig_caption: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -209,7 +210,7 @@ y permutamos los valores.
 de esta. 
 
 ## Calibración con Rorschach
-La siguiente imagene proviene de un escrito de Edmond Murphy que en 1964 escribió
+La siguiente imagen proviene de un escrito de Edmond Murphy que en 1964 escribió
 sobre la dudosa inferencia de mecanismos causales a partir de la observación de 
 una distribución bimodal (Edward Tufte, *The Visual Display of Quantitative 
 Information*, p. 169):
@@ -374,11 +375,13 @@ En el ejemplo de estaturas se pueden utilizar pruebas estadísticas tradicionale
 sin embargo, estas pruebas no cubren todas las complejidades que pueden surgir 
 en una exploración de datos.
 
+El siguiente es un *lineup* de nubes de palabras tomado de [Graphical Inference for Infovis](http://stat.wharton.upenn.edu/~buja/PAPERS/Wickham-Cook-Hofmann-Buja-IEEE-TransVizCompGraphics_2010-Graphical%20Inference%20for%20Infovis.pdf).
+
 ```{r wordcloud}
 library(png)
 library(grid)
 img <- readPNG("imagenes/wordcloud.png")
- grid.raster(img)
+grid.raster(img)
 ```
 
 ## El paquete nullabor
